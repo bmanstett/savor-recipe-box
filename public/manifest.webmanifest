@@ -1,0 +1,23 @@
+{
+  "id": "/",
+  "name": "Savor — Household Cookbook",
+  "short_name": "Savor",
+  "description": "Your private cookbook, meal planner, grocery assistant, and cooking companion.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "display_override": ["window-controls-overlay", "standalone"],
+  "orientation": "any",
+  "background_color": "#f7f3e9",
+  "theme_color": "#f7f3e9",
+  "categories": ["food", "lifestyle", "productivity"],
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Add a recipe", "short_name": "Add recipe", "url": "/?capture=1", "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Open grocery list", "short_name": "Groceries", "url": "/?view=grocery", "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }] }
+  ]
+}
