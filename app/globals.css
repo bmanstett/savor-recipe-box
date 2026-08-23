@@ -1,5 +1,3 @@
-@import 'tailwindcss';
-
 :root {
   --paper: #f7f3e9;
   --paper-deep: #efe9dc;
@@ -561,6 +559,24 @@ h1, h2, h3 { text-wrap: balance; }
 .sync-status-row strong, .sync-status-row small { display: block; }
 .sync-status-row strong { font-size: 9px; }
 .sync-status-row small { margin-top: 4px; color: var(--muted); font-size: 8px; line-height: 1.45; }
+.status-dot-error { background: var(--danger); box-shadow: 0 0 0 4px rgb(164 71 61 / 12%); }
+.github-connect-card, .github-connected-card { display: grid; gap: 13px; }
+.github-security-note { display: flex; gap: 10px; padding: 13px; border: 1px solid #d8dfd8; border-radius: 13px; background: #f0f4ef; color: var(--sage); }
+.github-security-note > svg { flex: 0 0 auto; margin-top: 1px; }
+.github-security-note strong, .github-security-note p { display: block; margin: 0; }
+.github-security-note strong { font-size: 9px; }
+.github-security-note p { margin-top: 4px; color: var(--muted); font-size: 8px; line-height: 1.5; }
+.github-security-note code { padding: 1px 4px; border-radius: 4px; background: rgb(52 81 67 / 9%); font-size: inherit; }
+.github-repo-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; }
+.github-connect-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.github-connect-actions .button { min-height: 40px; }
+.github-connect-actions a.button { display: inline-flex; }
+.github-helper { margin: -3px 0 0; color: var(--muted); font-size: 7px; line-height: 1.5; }
+.connected-repo { display: grid; grid-template-columns: 34px minmax(0, 1fr); align-items: center; gap: 9px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; }
+.connected-repo > span { display: grid; width: 32px; height: 32px; place-items: center; border-radius: 9px; background: var(--sage-soft); color: var(--sage); }
+.connected-repo strong, .connected-repo small { display: block; }
+.connected-repo strong { overflow: hidden; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.connected-repo small { margin-top: 3px; color: var(--muted); font-size: 8px; }
 .signout-button { margin-top: 10px; }
 .settings-section > .switch-row { align-items: flex-start; margin-bottom: 16px; cursor: pointer; }
 .settings-section > .switch-row > span:last-child strong, .settings-section > .switch-row > span:last-child small { display: block; }
@@ -605,6 +621,19 @@ h1, h2, h3 { text-wrap: balance; }
 .fatal-error > span { display: grid; width: 52px; height: 52px; margin-bottom: 18px; place-items: center; border-radius: 17px; background: var(--terracotta-soft); color: var(--terracotta); font-family: var(--serif); font-size: 22px; font-weight: 800; }
 .fatal-error h1 { max-width: 600px; margin: 0 0 10px; font-family: var(--serif); font-size: clamp(36px, 6vw, 58px); line-height: 0.98; letter-spacing: -0.05em; }
 .fatal-error > p:not(.eyebrow) { max-width: 540px; margin-bottom: 22px; color: var(--muted); font-size: 12px; line-height: 1.6; }
+.github-lock-screen { display: grid; min-height: 100vh; place-items: center; padding: 24px; background: radial-gradient(circle at top, #fffdf7 0, var(--paper) 58%); }
+.github-lock-card { width: min(440px, 100%); padding: 34px; border: 1px solid var(--line); border-radius: 25px; background: var(--surface); box-shadow: var(--shadow-float); text-align: center; }
+.lock-brand { display: inline-flex; align-items: center; gap: 8px; color: var(--sage); font-family: var(--serif); font-size: 21px; }
+.lock-brand > span { display: grid; width: 32px; height: 32px; place-items: center; border-radius: 10px; background: var(--sage); color: white; font-size: 15px; }
+.lock-icon { display: grid; width: 52px; height: 52px; margin: 29px auto 18px; place-items: center; border-radius: 17px; background: var(--sage-soft); color: var(--sage); }
+.github-lock-card h1 { margin: 0; font-family: var(--serif); font-size: 38px; letter-spacing: -0.045em; }
+.github-lock-card > p:not(.eyebrow) { max-width: 340px; margin: 10px auto 19px; color: var(--muted); font-size: 10px; line-height: 1.55; }
+.lock-repository { display: flex; align-items: center; gap: 9px; padding: 11px 13px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-soft); text-align: left; }
+.lock-repository > span, .lock-repository strong, .lock-repository small { display: block; }
+.lock-repository small { margin-top: 2px; color: var(--muted); font-size: 7px; }
+.github-lock-card form { display: grid; gap: 12px; margin-top: 18px; text-align: left; }
+.github-lock-card .settings-error { margin: 0; }
+.lock-note { display: block; margin-top: 15px; color: var(--muted); font-size: 7px; line-height: 1.5; }
 
 @media (max-width: 1280px) {
   :root { --sidebar-width: 210px; }
@@ -817,6 +846,8 @@ h1, h2, h3 { text-wrap: balance; }
   .sheet-header > div { min-width: 0; }
   .sheet-header p:not(.eyebrow) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .settings-header h1 { font-size: 28px; }
+  .github-repo-fields { grid-template-columns: 1fr; }
+  .github-connect-actions .button { flex: 1; padding-inline: 9px; }
   .backup-actions .button { flex: 1; padding-inline: 9px; font-size: 9px; }
   .step-text { font-size: 34px; }
   .cooking-timer { flex-wrap: wrap; }

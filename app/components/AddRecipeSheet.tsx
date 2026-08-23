@@ -5,10 +5,9 @@ import {
   Link2, LoaderCircle, PenLine, ScanLine, Upload, X,
 } from 'lucide-react';
 import { ChangeEvent, FormEvent, useEffect, useRef, useState } from 'react';
-import { createBlankDraft, makeId, parseIngredientLine } from '../../lib/domain';
+import { createBlankDraft, makeId, parseIngredientLine, parseRecipeText } from '../../lib/domain';
+import { prepareRecipeImage } from '../../lib/image-processing';
 import type { ImportResult, Instruction, Recipe, RecipeDraft } from '../../lib/types';
-
-class HandledImportError extends Error {}
 
 function recipeToDraft(recipe: Recipe): RecipeDraft {
   const draft = { ...recipe };
@@ -75,29 +74,23 @@ export function AddRecipeSheet({ initialRecipe, onClose, onSave }: {
     setError(null);
   }
 
-  async function parseResponse(response: Response): Promise<ImportResult> {
-    const payload = await response.json() as ImportResult & { error?: string; recovery?: string[] };
-    if (!response.ok) {
-      setError({ message: payload.error || 'The recipe could not be imported.', recovery: payload.recovery });
-      throw new HandledImportError(payload.error || 'The recipe could not be imported.');
-    }
-    return payload;
-  }
-
   async function importLink(event: FormEvent) {
     event.preventDefault();
     setProcessing(true);
     setError(null);
     try {
-      const response = await fetch('/api/import/url', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url }) });
-      openReview(await parseResponse(response));
-    } catch (caught) {
-      if (!(caught instanceof HandledImportError)) {
-        setError({
-          message: 'Savor could not reach or read that recipe page.',
-          recovery: ['Check your connection', 'Paste recipe text', 'Create manually'],
-        });
-      }
+      const source = new URL(url);
+      if (!['http:', 'https:'].includes(source.protocol)) throw new Error('unsupported');
+      const next = createBlankDraft('url');
+      next.sourceURL = source.toString();
+      next.sourceName = source.hostname.replace(/^www\./, '');
+      openReview({
+        draft: next,
+        provider: 'manual',
+        warnings: ['Source link saved. GitHub Pages cannot privately fetch arbitrary recipe sites, so paste or enter the recipe details before saving.'],
+      });
+    } catch {
+      setError({ message: 'Enter a complete public recipe link.', recovery: ['Paste recipe text', 'Create manually'] });
     }
     finally { setProcessing(false); }
   }
@@ -107,15 +100,10 @@ export function AddRecipeSheet({ initialRecipe, onClose, onSave }: {
     setProcessing(true);
     setError(null);
     try {
-      const response = await fetch('/api/import/text', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: pastedText }) });
-      openReview(await parseResponse(response));
-    } catch (caught) {
-      if (!(caught instanceof HandledImportError)) {
-        setError({
-          message: 'Savor could not structure the pasted recipe.',
-          recovery: ['Check your connection', 'Try again', 'Create manually'],
-        });
-      }
+      const result = parseRecipeText(pastedText);
+      openReview({ ...result, provider: 'text-parser' });
+    } catch {
+      setError({ message: 'Savor could not structure the pasted recipe.', recovery: ['Try again', 'Create manually'] });
     }
     finally { setProcessing(false); }
   }
@@ -128,15 +116,15 @@ export function AddRecipeSheet({ initialRecipe, onClose, onSave }: {
     try {
       const attachments = [];
       for (const file of files.slice(0, 8)) {
-        const form = new FormData();
-        form.append('file', file);
-        const response = await fetch('/api/upload', { method: 'POST', body: form });
-        const payload = await response.json() as { attachment?: RecipeDraft['attachments'][number]; error?: string; recovery?: string[] };
-        if (!response.ok || !payload.attachment) {
-          setError({ message: payload.error || 'The image could not be uploaded.', recovery: payload.recovery });
-          return;
-        }
-        attachments.push(payload.attachment);
+        const prepared = await prepareRecipeImage(file);
+        attachments.push({
+          id: makeId('attachment'),
+          type: 'original-photo' as const,
+          url: prepared.dataUrl,
+          mimeType: prepared.mimeType,
+          originalFilename: file.name || 'recipe-photo.webp',
+          captureDate: new Date().toISOString(),
+        });
       }
       const next = phase === 'review' ? { ...draft } : createBlankDraft('photo');
       next.sourceType = 'photo';
@@ -145,12 +133,12 @@ export function AddRecipeSheet({ initialRecipe, onClose, onSave }: {
       openReview({
         draft: next,
         provider: 'manual-photo',
-        warnings: ['Original image preserved. OCR is not configured on this private site, so review and transcribe the visible recipe before saving.'],
+        warnings: ['Original image compressed and preserved. Review and transcribe the visible recipe before saving.'],
       });
     } catch {
       setError({
         message: 'The image could not be uploaded.',
-        recovery: ['Check your connection', 'Try a smaller image', 'Continue without a photo'],
+        recovery: ['Try a JPEG, PNG, or WebP image', 'Use a smaller crop', 'Continue without a photo'],
       });
     } finally {
       setProcessing(false);
@@ -195,12 +183,12 @@ export function AddRecipeSheet({ initialRecipe, onClose, onSave }: {
           {phase === 'source' && mode === 'choose' ? (
             <div className="capture-options">
               {error ? <div style={{ gridColumn: '1 / -1' }}><ErrorBox error={error} onPaste={() => { setError(null); setMode('paste'); }} onManual={startManual} /></div> : null}
-              <button type="button" onClick={() => setMode('link')}><span className="capture-icon"><Link2 size={21} /></span><span><strong>Import from link</strong><small>Recipe sites with Schema.org data</small></span><ArrowLeft className="capture-arrow" size={16} /></button>
+              <button type="button" onClick={() => setMode('link')}><span className="capture-icon"><Link2 size={21} /></span><span><strong>Start from a link</strong><small>Preserve the source, then add its details</small></span><ArrowLeft className="capture-arrow" size={16} /></button>
               <button type="button" onClick={() => fileRef.current?.click()}><span className="capture-icon"><ScanLine size={21} /></span><span><strong>Photo or screenshot</strong><small>Preserve the original and transcribe it</small></span><ArrowLeft className="capture-arrow" size={16} /></button>
               <button type="button" onClick={() => setMode('paste')}><span className="capture-icon"><ClipboardPaste size={21} /></span><span><strong>Paste recipe text</strong><small>Automatically structures ingredients and steps</small></span><ArrowLeft className="capture-arrow" size={16} /></button>
               <button type="button" onClick={startManual}><span className="capture-icon"><PenLine size={21} /></span><span><strong>Create manually</strong><small>Fast keyboard-first recipe entry</small></span><ArrowLeft className="capture-arrow" size={16} /></button>
-              <input ref={fileRef} className="sr-only" type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif" capture="environment" multiple onChange={uploadPhotos} />
-              <aside className="privacy-note"><Camera size={17} /><p><strong>Private by default.</strong> Photos are stored in your private household site. OCR is intentionally disabled until a provider is configured and disclosed.</p></aside>
+              <input ref={fileRef} className="sr-only" type="file" accept="image/jpeg,image/png,image/webp" capture="environment" multiple onChange={uploadPhotos} />
+              <aside className="privacy-note"><Camera size={17} /><p><strong>Private by default.</strong> Photos are compressed on this device, then synced only to your private GitHub data repository.</p></aside>
             </div>
           ) : null}
 
@@ -208,9 +196,9 @@ export function AddRecipeSheet({ initialRecipe, onClose, onSave }: {
             <form className="capture-form" onSubmit={importLink}>
               <div className="capture-form-icon"><Link2 size={24} /></div>
               <label className="field-label">Recipe URL<input autoFocus type="url" inputMode="url" placeholder="https://example.com/favorite-recipe" value={url} onChange={(event) => setUrl(event.target.value)} /></label>
-              <p className="field-help">Savor reads structured recipe data on the server. Login pages, paywalls, and unsupported social posts may require pasted text or a screenshot.</p>
+              <p className="field-help">A static GitHub Pages app cannot fetch most recipe sites without exposing a proxy. Savor will preserve the source link and let you enter or paste the details safely.</p>
               {error ? <ErrorBox error={error} onPaste={() => { setError(null); setMode('paste'); }} onManual={startManual} /> : null}
-              <button className="button button-primary full-button" type="submit" disabled={processing || !url.trim()}>{processing ? <><LoaderCircle className="spin" size={17} />Reading recipe…</> : 'Import recipe'}</button>
+              <button className="button button-primary full-button" type="submit" disabled={processing || !url.trim()}>{processing ? <><LoaderCircle className="spin" size={17} />Saving source…</> : 'Continue with source link'}</button>
             </form>
           ) : null}
 
@@ -232,7 +220,7 @@ export function AddRecipeSheet({ initialRecipe, onClose, onSave }: {
                 </div>
                 {draft.attachments.length ? <div className="attachment-strip">{draft.attachments.map((attachment) => <img alt="Original recipe attachment" src={attachment.url} key={attachment.id} />)}</div> : null}
                 <button className="button button-secondary full-button" type="button" onClick={() => fileRef.current?.click()}><Upload size={16} />{draft.attachments.length ? 'Add another page' : 'Attach original image'}</button>
-                <input ref={fileRef} className="sr-only" type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif" multiple onChange={uploadPhotos} />
+                <input ref={fileRef} className="sr-only" type="file" accept="image/jpeg,image/png,image/webp" multiple onChange={uploadPhotos} />
                 <div className="review-status"><CheckCircle2 size={17} /><div><strong>{provider === 'schema-org' ? 'Structured page data' : provider === 'text-parser' ? 'Parsed recipe text' : provider === 'manual-photo' ? 'Original image preserved' : 'Manual recipe'}</strong><small>{reviewCount ? `${reviewCount} ingredient${reviewCount === 1 ? '' : 's'} need review` : 'Ready for your review'}</small></div></div>
               </aside>
 

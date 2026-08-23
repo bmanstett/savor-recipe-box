@@ -4,9 +4,11 @@ import {
   BookOpen, CalendarDays, ChefHat, Cloud, Home, Menu, Plus, Search,
   Settings, ShoppingBasket, WifiOff, X,
 } from 'lucide-react';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, type Dispatch, type SetStateAction } from 'react';
 import { aggregateRecipes, draftToRecipe, makeId, parseIngredientLine } from '../../lib/domain';
-import { cacheBootstrap, flushMutationQueue, queueMutation, readCachedBootstrap } from '../../lib/client-cache';
+import type { StoredGitHubConnection } from '../../lib/client-cache';
+import { parseBackupFile } from '../../lib/github-sync';
+import type { GitHubConnectInput, SyncPresentation } from '../../lib/sync-types';
 import type {
   BootstrapData, GroceryCategory, GroceryItem, HouseholdPreferences,
   MealPlanEntry, Recipe, RecipeDraft,
@@ -52,21 +54,29 @@ function currentWeekEntries(entries: MealPlanEntry[]): MealPlanEntry[] {
   return entries.filter((entry) => entry.date >= startKey && entry.date <= endKey);
 }
 
-class ApiResponseError extends Error {}
-
-export function SavorApp({ initialData }: { initialData: BootstrapData }) {
-  const [data, setData] = useState(initialData);
+export function SavorApp({
+  data, setData, connection, sync, startInSettings,
+  onConnectGitHub, onDisconnectGitHub, onSyncNow,
+}: {
+  data: BootstrapData;
+  setData: Dispatch<SetStateAction<BootstrapData>>;
+  connection: StoredGitHubConnection | null;
+  sync: SyncPresentation;
+  startInSettings: boolean;
+  onConnectGitHub: (input: GitHubConnectInput) => Promise<void>;
+  onDisconnectGitHub: () => Promise<void>;
+  onSyncNow: () => Promise<void>;
+}) {
   const [view, setView] = useState<View>('home');
   const [selectedRecipe, setSelectedRecipe] = useState<Recipe | null>(null);
   const [cookingRecipe, setCookingRecipe] = useState<Recipe | null>(null);
   const [addOpen, setAddOpen] = useState(false);
   const [editingRecipe, setEditingRecipe] = useState<Recipe | null>(null);
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(startInSettings);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [recipeFilter, setRecipeFilter] = useState<'all' | 'favorites' | 'quick' | 'recent'>('all');
   const [online, setOnline] = useState(true);
-  const [syncing, setSyncing] = useState(false);
   const [toast, setToast] = useState<ToastState>(null);
   const [installPrompt, setInstallPrompt] = useState<Event | null>(null);
 
@@ -76,49 +86,18 @@ export function SavorApp({ initialData }: { initialData: BootstrapData }) {
   }, []);
 
   useEffect(() => {
-    if (navigator.onLine) cacheBootstrap(data).catch(() => undefined);
-  }, [data]);
-
-  const reload = useCallback(async () => {
-    if (!navigator.onLine) return;
-    setSyncing(true);
-    try {
-      const response = await fetch('/api/bootstrap', { cache: 'no-store' });
-      if (response.ok) setData(await response.json() as BootstrapData);
-    } finally {
-      setSyncing(false);
-    }
-  }, []);
-
-  useEffect(() => {
     const initialSync = window.setTimeout(() => {
       setOnline(navigator.onLine);
-      if (!navigator.onLine) {
-        readCachedBootstrap().then((cached) => { if (cached) setData(cached); }).catch(() => undefined);
-      }
       const params = new URLSearchParams(window.location.search);
       const requestedView = params.get('view');
       if (requestedView === 'home' || requestedView === 'recipes' || requestedView === 'plan' || requestedView === 'grocery') {
         setView(requestedView);
       }
       if (params.get('capture') === '1') setAddOpen(true);
-      if (params.has('view') || params.has('capture')) window.history.replaceState({}, '', '/');
+      if (params.has('view') || params.has('capture')) window.history.replaceState({}, '', window.location.pathname);
     }, 0);
-    const handleOnline = async () => {
-      setOnline(true);
-      setSyncing(true);
-      try {
-        const completed = await flushMutationQueue();
-        if (completed) await reload();
-      } finally {
-        setSyncing(false);
-      }
-    };
-    const handleOffline = async () => {
-      setOnline(false);
-      const cached = await readCachedBootstrap().catch(() => null);
-      if (cached) setData(cached);
-    };
+    const handleOnline = () => setOnline(true);
+    const handleOffline = () => setOnline(false);
     const handleInstall = (event: Event) => {
       event.preventDefault();
       setInstallPrompt(event);
@@ -126,35 +105,14 @@ export function SavorApp({ initialData }: { initialData: BootstrapData }) {
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
     window.addEventListener('beforeinstallprompt', handleInstall);
-    if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => undefined);
+    if ('serviceWorker' in navigator) navigator.serviceWorker.register(new URL('sw.js', document.baseURI), { scope: './' }).catch(() => undefined);
     return () => {
       window.clearTimeout(initialSync);
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
       window.removeEventListener('beforeinstallprompt', handleInstall);
     };
-  }, [reload]);
-
-  async function mutate<T>(url: string, method: 'POST' | 'PATCH' | 'PUT' | 'DELETE', body?: unknown, queueable = true): Promise<T | null> {
-    try {
-      const response = await fetch(url, {
-        method,
-        headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
-        body: body === undefined ? undefined : JSON.stringify(body),
-      });
-      const payload = await response.json().catch(() => ({})) as { error?: string } & T;
-      if (!response.ok) throw new ApiResponseError(payload.error || 'That change could not be saved.');
-      return payload;
-    } catch (error) {
-      if (queueable && (!(error instanceof ApiResponseError) || !navigator.onLine)) {
-        await queueMutation({ url, method, body }).catch(() => undefined);
-        setOnline(false);
-        showToast({ message: 'Saved on this device. Savor will sync when you’re online.' });
-        return null;
-      }
-      throw error;
-    }
-  }
+  }, []);
 
   async function saveRecipe(draft: RecipeDraft) {
     const existing = data.recipes.find((recipe) => recipe.id === draft.id);
@@ -166,47 +124,36 @@ export function SavorApp({ initialData }: { initialData: BootstrapData }) {
     setEditingRecipe(null);
     setSelectedRecipe(recipe);
     showToast({ message: existing ? 'Recipe updated.' : 'Recipe saved to your cookbook.' });
-    try {
-      const saved = await mutate<Recipe>('/api/recipes', 'POST', recipe);
-      if (saved) {
-        setData((current) => ({ ...current, recipes: current.recipes.map((item) => item.id === saved.id ? saved : item) }));
-        setSelectedRecipe((current) => current?.id === saved.id ? saved : current);
-      }
-    } catch (error) {
-      showToast({ message: error instanceof Error ? error.message : 'Recipe could not be saved.' });
-    }
   }
 
   async function toggleFavorite(recipe: Recipe) {
     const favorite = !recipe.favorite;
-    const optimistic = { ...recipe, favorite };
+    const optimistic = { ...recipe, favorite, dateModified: new Date().toISOString(), revision: recipe.revision + 1 };
     setData((current) => ({ ...current, recipes: current.recipes.map((item) => item.id === recipe.id ? optimistic : item) }));
     setSelectedRecipe((current) => current?.id === recipe.id ? optimistic : current);
-    try {
-      const saved = await mutate<Recipe>(`/api/recipes/${recipe.id}`, 'PATCH', { favorite });
-      if (saved) setData((current) => ({ ...current, recipes: current.recipes.map((item) => item.id === saved.id ? saved : item) }));
-    } catch (error) {
-      showToast({ message: error instanceof Error ? error.message : 'Favorite could not be changed.' });
-    }
   }
 
   async function deleteRecipe(recipe: Recipe) {
     setSelectedRecipe(null);
     setData((current) => ({ ...current, recipes: current.recipes.filter((item) => item.id !== recipe.id) }));
     const restore = async () => {
-      setData((current) => ({ ...current, recipes: [recipe, ...current.recipes] }));
-      await mutate(`/api/recipes/${recipe.id}`, 'PATCH', { deletedAt: null });
+      const restored = { ...recipe, dateModified: new Date().toISOString(), revision: recipe.revision + 1 };
+      setData((current) => ({ ...current, recipes: [restored, ...current.recipes] }));
       showToast({ message: 'Recipe restored.' });
     };
     showToast({ message: 'Recipe deleted.', actionLabel: 'Undo', action: restore });
-    await mutate(`/api/recipes/${recipe.id}`, 'DELETE');
   }
 
   async function markCooked(recipe: Recipe) {
-    const updated = { ...recipe, lastCooked: new Date().toISOString(), timesCooked: recipe.timesCooked + 1 };
+    const updated = {
+      ...recipe,
+      lastCooked: new Date().toISOString(),
+      timesCooked: recipe.timesCooked + 1,
+      dateModified: new Date().toISOString(),
+      revision: recipe.revision + 1,
+    };
     setData((current) => ({ ...current, recipes: current.recipes.map((item) => item.id === recipe.id ? updated : item) }));
     setCookingRecipe(null);
-    await mutate(`/api/recipes/${recipe.id}`, 'PATCH', { lastCooked: updated.lastCooked, timesCooked: updated.timesCooked });
     showToast({ message: 'Dinner remembered. Nice work.' });
   }
 
@@ -220,7 +167,6 @@ export function SavorApp({ initialData }: { initialData: BootstrapData }) {
     };
     setData((current) => ({ ...current, recipes: [copy, ...current.recipes] }));
     setSelectedRecipe(copy);
-    await mutate('/api/recipes', 'POST', copy);
     showToast({ message: 'Recipe duplicated.' });
   }
 
@@ -234,13 +180,11 @@ export function SavorApp({ initialData }: { initialData: BootstrapData }) {
       };
     });
     setData((current) => ({ ...current, mealPlan: [...current.mealPlan, ...entries].sort((a, b) => a.date.localeCompare(b.date)) }));
-    await Promise.all(entries.map((entry) => mutate('/api/meal-plan', 'POST', entry)));
     showToast({ message: `${entries.length} ${entries.length === 1 ? 'meal' : 'meals'} added to the plan.` });
   }
 
   async function removeMeal(entry: MealPlanEntry) {
     setData((current) => ({ ...current, mealPlan: current.mealPlan.filter((item) => item.id !== entry.id) }));
-    await mutate(`/api/meal-plan/${entry.id}`, 'DELETE');
     showToast({ message: 'Meal removed from the plan.' });
   }
 
@@ -265,13 +209,7 @@ export function SavorApp({ initialData }: { initialData: BootstrapData }) {
     const optimistic = generated.map((item) => ({ ...item, checked: checked.get(`${item.normalizedIngredient}|${item.unit}`) ?? false }));
     setData((current) => ({ ...current, groceryItems: [...optimistic, ...manual] }));
     setView('grocery');
-    try {
-      const result = await mutate<{ items: GroceryItem[] }>('/api/grocery/generate', 'POST', { recipeIds: selectedIds, servingsByRecipe, occurrences });
-      if (result) setData((current) => ({ ...current, groceryItems: result.items }));
-      showToast({ message: `${generated.length} grocery items organized by aisle.` });
-    } catch (error) {
-      showToast({ message: error instanceof Error ? error.message : 'Grocery list could not be generated.' });
-    }
+    showToast({ message: `${generated.length} grocery items organized by aisle.` });
   }
 
   async function addGroceryItem(rawText: string) {
@@ -280,51 +218,51 @@ export function SavorApp({ initialData }: { initialData: BootstrapData }) {
       id: makeId('grocery'), ingredientName: ingredient.ingredientName,
       normalizedIngredient: ingredient.normalizedIngredient, quantity: ingredient.quantity,
       unit: ingredient.normalizedUnit, groceryCategory: ingredient.groceryCategory,
-      checked: false, manual: true, recipeContributions: [], revision: 0,
+      checked: false, manual: true, recipeContributions: [], revision: 1,
       dateModified: new Date().toISOString(),
     };
     setData((current) => ({ ...current, groceryItems: [...current.groceryItems, item] }));
-    const saved = await mutate<GroceryItem>('/api/grocery', 'POST', { id: item.id, rawText });
-    if (saved) setData((current) => ({ ...current, groceryItems: current.groceryItems.map((row) => row.id === item.id ? saved : row) }));
   }
 
   async function toggleGroceryItem(item: GroceryItem) {
     const checked = !item.checked;
     const update = (value: boolean) => setData((current) => ({
       ...current,
-      groceryItems: current.groceryItems.map((row) => row.id === item.id ? { ...row, checked: value } : row),
+      groceryItems: current.groceryItems.map((row) => row.id === item.id ? {
+        ...row, checked: value, revision: row.revision + 1, dateModified: new Date().toISOString(),
+      } : row),
     }));
     update(checked);
     showToast(checked ? {
       message: `${item.ingredientName} checked off.`, actionLabel: 'Undo',
-      action: () => { update(false); mutate(`/api/grocery/${item.id}`, 'PATCH', { checked: false }); },
+      action: () => update(false),
     } : { message: `${item.ingredientName} returned to the list.` });
-    await mutate(`/api/grocery/${item.id}`, 'PATCH', { checked });
   }
 
   async function updateGroceryCategory(item: GroceryItem, category: GroceryCategory) {
-    setData((current) => ({ ...current, groceryItems: current.groceryItems.map((row) => row.id === item.id ? { ...row, groceryCategory: category } : row) }));
-    await mutate(`/api/grocery/${item.id}`, 'PATCH', { groceryCategory: category });
+    setData((current) => ({
+      ...current,
+      groceryItems: current.groceryItems.map((row) => row.id === item.id ? {
+        ...row, groceryCategory: category, revision: row.revision + 1, dateModified: new Date().toISOString(),
+      } : row),
+    }));
   }
 
   async function deleteGrocery(item: GroceryItem) {
     setData((current) => ({ ...current, groceryItems: current.groceryItems.filter((row) => row.id !== item.id) }));
-    await mutate(`/api/grocery/${item.id}`, 'DELETE');
   }
 
   async function savePreferences(preferences: HouseholdPreferences) {
     setData((current) => ({ ...current, preferences }));
-    await mutate('/api/preferences', 'PUT', preferences);
     setSettingsOpen(false);
     showToast({ message: 'Household preferences saved.' });
   }
 
   async function exportBackup() {
     try {
-      const response = await fetch('/api/backup');
-      const blob = response.ok
-        ? await response.blob()
-        : new Blob([JSON.stringify({ format: 'savor-household-backup', version: 1, exportedAt: new Date().toISOString(), ...data, user: undefined }, null, 2)], { type: 'application/json' });
+      const blob = new Blob([
+        JSON.stringify({ format: 'savor-household-backup', version: 1, exportedAt: new Date().toISOString(), ...data, user: undefined }, null, 2),
+      ], { type: 'application/json' });
       const href = URL.createObjectURL(blob);
       const anchor = document.createElement('a');
       anchor.href = href;
@@ -338,11 +276,26 @@ export function SavorApp({ initialData }: { initialData: BootstrapData }) {
   }
 
   async function importBackup(file: File) {
-    if (file.size > 5_000_000) throw new Error('Backups must be smaller than 5 MB.');
-    const response = await fetch('/api/backup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: await file.text() });
-    const result = await response.json() as { error?: string };
-    if (!response.ok) throw new Error(result.error || 'Backup could not be imported.');
-    await reload();
+    if (file.size > 25_000_000) throw new Error('Backups must be smaller than 25 MB.');
+    let parsed: unknown;
+    try { parsed = JSON.parse(await file.text()); }
+    catch { throw new Error('That backup is not valid JSON.'); }
+    const imported = parseBackupFile(parsed, data.user);
+    const mergeRows = <T extends { id: string; dateModified?: string }>(current: T[], incoming: T[]) => {
+      const rows = new Map(current.map((row) => [row.id, row]));
+      for (const row of incoming) {
+        const existing = rows.get(row.id);
+        if (!existing || (row.dateModified ?? '') > (existing.dateModified ?? '')) rows.set(row.id, row);
+      }
+      return [...rows.values()];
+    };
+    setData((current) => ({
+      ...current,
+      recipes: mergeRows(current.recipes, imported.recipes),
+      mealPlan: mergeRows(current.mealPlan, imported.mealPlan).sort((a, b) => a.date.localeCompare(b.date)),
+      groceryItems: mergeRows(current.groceryItems, imported.groceryItems),
+      preferences: imported.preferences,
+    }));
     showToast({ message: 'Backup merged safely.' });
   }
 
@@ -375,7 +328,7 @@ export function SavorApp({ initialData }: { initialData: BootstrapData }) {
   const selectedFresh = selectedRecipe ? data.recipes.find((recipe) => recipe.id === selectedRecipe.id) ?? selectedRecipe : null;
   const cookingFresh = cookingRecipe ? data.recipes.find((recipe) => recipe.id === cookingRecipe.id) ?? cookingRecipe : null;
   const activeCount = data.groceryItems.filter((item) => !item.checked).length;
-  const syncLabel = syncing ? 'Syncing…' : online ? 'Saved privately' : 'Offline';
+  const syncLabel = online ? sync.label : 'Offline';
 
   return (
     <div className="savor-shell">
@@ -431,7 +384,7 @@ export function SavorApp({ initialData }: { initialData: BootstrapData }) {
                   <input type="search" placeholder="Search recipes or ingredients" value={query} onChange={(event) => setQuery(event.target.value)} />
                 </label>
               ) : null}
-              <span className={online ? 'sync-pill' : 'sync-pill offline'}>{online ? <Cloud size={14} /> : <WifiOff size={14} />}{syncLabel}</span>
+              <span className={online && sync.phase !== 'error' && sync.phase !== 'needs-token' ? 'sync-pill' : 'sync-pill offline'}>{online ? <Cloud size={14} /> : <WifiOff size={14} />}{syncLabel}</span>
               <button className="header-add" type="button" onClick={() => { setEditingRecipe(null); setAddOpen(true); }}><Plus size={17} />Add recipe</button>
             </div>
           </div>
@@ -488,13 +441,17 @@ export function SavorApp({ initialData }: { initialData: BootstrapData }) {
 
       {settingsOpen ? (
         <SettingsSheet
-          user={data.user}
           preferences={data.preferences}
+          connection={connection}
+          sync={sync}
           installAvailable={Boolean(installPrompt)}
           onInstall={installApp}
           onSave={savePreferences}
           onExport={exportBackup}
           onImport={importBackup}
+          onConnectGitHub={onConnectGitHub}
+          onDisconnectGitHub={onDisconnectGitHub}
+          onSyncNow={onSyncNow}
           onClose={() => setSettingsOpen(false)}
         />
       ) : null}
