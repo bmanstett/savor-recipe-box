@@ -3,8 +3,8 @@
 import { CalendarPlus, ChevronLeft, ChevronRight, ClipboardList, Clock3, Mail, Plus, ShieldCheck, ShoppingBasket, Sparkles, Trash2, X } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { buildSundayPrepRecommendation, optimizeMealWeek, type RecommendedMeal } from '../../lib/meal-week-optimizer';
-import { formatSkylightWeek, skylightMailto } from '../../lib/skylight';
-import { MEAL_TYPES, type GroceryItem, type MealPlanEntry, type MealType, type Recipe } from '../../lib/types';
+import { formatSkylightWeek, skylightEmailDraftUrl } from '../../lib/skylight';
+import { MEAL_TYPES, type GroceryItem, type MealPlanEntry, type MealType, type Recipe, type SkylightEmailApp } from '../../lib/types';
 import { OptimizeWeekDialog } from './OptimizeWeekDialog';
 import { SundayPrepDialog } from './SundayPrepDialog';
 
@@ -26,13 +26,15 @@ function addDays(value: Date, days: number): Date {
 }
 
 export function MealPlannerView({
-  recipes, entries, groceryItems, skylightEmail, onOpenSettings,
+  recipes, entries, groceryItems, skylightEmail, skylightEmailApp, onChangeSkylightEmailApp, onOpenSettings,
   onPlanRecipes, onRemoveMeal, onOpenRecipe, onGenerateGroceries, onApplyOptimization,
 }: {
   recipes: Recipe[];
   entries: MealPlanEntry[];
   groceryItems: GroceryItem[];
   skylightEmail: string | null;
+  skylightEmailApp: SkylightEmailApp;
+  onChangeSkylightEmailApp: (value: SkylightEmailApp) => void;
   onOpenSettings: () => void;
   onPlanRecipes: (ids: string[], startDate?: string, mealType?: MealType) => Promise<void>;
   onRemoveMeal: (entry: MealPlanEntry) => Promise<void>;
@@ -62,6 +64,9 @@ export function MealPlannerView({
     () => formatSkylightWeek(entries, recipes, startKey, endKey),
     [endKey, entries, recipes, startKey],
   );
+  const skylightDraftHref = skylightEmail
+    ? skylightEmailDraftUrl(skylightEmail, skylightDraft, skylightEmailApp)
+    : '';
   const optimization = useMemo(
     () => optimizeMealWeek({ recipes, mealPlan: entries, groceryItems, week: { startDate: startKey, endDate: endKey } }),
     [endKey, entries, groceryItems, recipes, startKey],
@@ -82,12 +87,6 @@ export function MealPlannerView({
     if (!recipeId || !chosenDate) return;
     await onPlanRecipes([recipeId], chosenDate, mealType);
     setAddOpen(false);
-  }
-
-  function reviewSkylightDraft() {
-    if (!skylightEmail || !skylightDraft.mealCount) return;
-    window.location.href = skylightMailto(skylightEmail, skylightDraft);
-    setSkylightOpen(false);
   }
 
   return (
@@ -160,26 +159,27 @@ export function MealPlannerView({
 
       {skylightOpen ? (
         <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setSkylightOpen(false); }}>
-          <section className="mini-dialog" role="dialog" aria-modal="true" aria-labelledby="skylight-dialog-title">
+          <section className="mini-dialog" role="dialog" aria-modal="true" aria-labelledby="skylight-dialog-title" aria-describedby="skylight-dialog-description">
             <button className="dialog-x icon-button" aria-label="Close" type="button" onClick={() => setSkylightOpen(false)}><X size={18} /></button>
             <p className="eyebrow">Skylight Sidekick</p>
             {skylightEmail ? (
               <>
                 <h2 id="skylight-dialog-title">Review this week before sending</h2>
-                <p>Savor will open your email app with {skylightDraft.mealCount} {skylightDraft.mealCount === 1 ? 'meal' : 'meals'} from {weekLabel}. Nothing is sent until you review the draft and tap Send.</p>
+                <p id="skylight-dialog-description">Savor will open {skylightEmailApp === 'gmail' ? 'the Gmail app' : 'your device’s default mail app'} with {skylightDraft.mealCount} {skylightDraft.mealCount === 1 ? 'meal' : 'meals'} from {weekLabel}. Nothing is sent until you review the draft and tap Send.</p>
                 <div className="github-connect-card">
                   <div className="connected-repo"><span><Mail size={16} /></span><div><strong>{skylightEmail}</strong><small>Skylight device email</small></div></div>
+                  <label className="field-label">Send using<select value={skylightEmailApp} onChange={(event) => onChangeSkylightEmailApp(event.target.value as SkylightEmailApp)}><option value="gmail">Gmail app</option><option value="device-default">Device default mail app</option></select><small>Saved immediately on this device. Gmail must be installed when Gmail app is selected.</small></label>
                   <div className="github-security-note"><ShieldCheck size={18} /><div><strong>Calendar Plus is required</strong><p>Sidekick can occasionally misread a menu. After sending, review Skylight's confirmation email and use Undo Import if anything looks wrong.</p></div></div>
                   <div className="github-connect-actions">
                     <button className="button button-ghost" type="button" onClick={() => setSkylightOpen(false)}>Cancel</button>
-                    <button className="button button-primary" type="button" onClick={reviewSkylightDraft}><Mail size={16} />Review email draft</button>
+                    <a className="button button-primary" href={skylightDraftHref} onClick={() => setSkylightOpen(false)}><Mail size={16} />{skylightEmailApp === 'gmail' ? 'Open Gmail draft' : 'Open email draft'}</a>
                   </div>
                 </div>
               </>
             ) : (
               <>
                 <h2 id="skylight-dialog-title">Connect your Skylight first</h2>
-                <p>Add your Calendar's <strong>@ourskylight.com</strong> device email in household settings. Savor will use it only to address a draft in your own email app.</p>
+                <p id="skylight-dialog-description">Add your Calendar's <strong>@ourskylight.com</strong> device email in household settings. Savor will use it only to address a draft in your own email app.</p>
                 <div className="github-connect-card">
                   <div className="github-security-note"><ShieldCheck size={18} /><div><strong>Supported Sidekick import</strong><p>Meal imports require Calendar Plus. Savor never signs into Skylight and never sends mail automatically.</p></div></div>
                   <div className="github-connect-actions">

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { aggregateRecipes, createBlankDraft, draftToRecipe, formatRational, parseIngredientLine } from '../lib/domain.ts';
 import { buildSundayPrepRecommendation, optimizeMealWeek } from '../lib/meal-week-optimizer.ts';
-import { formatSkylightWeek, isValidSkylightDeviceEmail, skylightMailto } from '../lib/skylight.ts';
+import { formatSkylightWeek, isValidSkylightDeviceEmail, normalizeSkylightEmailApp, skylightEmailDraftUrl, skylightGmailComposeUrl, skylightMailto } from '../lib/skylight.ts';
 import { parseRecipeSourceUrl } from '../lib/recipe-source.ts';
 import type { Recipe } from '../lib/types.ts';
 
@@ -116,6 +116,9 @@ function itemFor(items: ReturnType<typeof aggregateRecipes>, normalized: string,
 {
   assert(isValidSkylightDeviceEmail('family-kitchen@ourskylight.com'));
   assert(!isValidSkylightDeviceEmail('family-kitchen@example.com'));
+  assert.equal(normalizeSkylightEmailApp(undefined), 'gmail');
+  assert.equal(normalizeSkylightEmailApp('invalid'), 'gmail');
+  assert.equal(normalizeSkylightEmailApp('device-default'), 'device-default');
 }
 
 {
@@ -130,7 +133,25 @@ function itemFor(items: ReturnType<typeof aggregateRecipes>, normalized: string,
   assert.match(draft.body, /Dinner: Taco night/);
   assert.match(draft.body, /Servings: 6/);
   assert.match(draft.body, /Recipe URL: https:\/\/example\.com\/tacos/);
-  assert.match(skylightMailto('FAMILY@ourskylight.com', draft), /^mailto:family@ourskylight\.com\?/);
+  const deviceDefault = skylightMailto('FAMILY@ourskylight.com', draft);
+  assert.match(deviceDefault, /^mailto:family@ourskylight\.com\?/);
+  assert.match(deviceDefault, /%0D%0A/);
+  assert.equal(skylightEmailDraftUrl('FAMILY@ourskylight.com', draft, 'device-default'), deviceDefault);
+
+  const gmail = new URL(skylightGmailComposeUrl('FAMILY@ourskylight.com', draft));
+  assert.equal(gmail.protocol, 'googlegmail:');
+  assert.equal(gmail.pathname, '/co');
+  assert.equal(gmail.searchParams.get('to'), 'family@ourskylight.com');
+  assert.equal(gmail.searchParams.get('body'), draft.body.replace(/\r?\n/g, '\r\n'));
+  assert.equal(gmail.searchParams.has('subject'), false);
+  assert.equal(skylightEmailDraftUrl('FAMILY@ourskylight.com', draft), gmail.href);
+}
+
+{
+  const specialDraft = { body: 'Dinner: Jalapeño & lime\nEmoji: 🍋? #fresh', mealCount: 1 };
+  const gmail = new URL(skylightGmailComposeUrl('FAMILY+MENU@ourskylight.com', specialDraft));
+  assert.equal(gmail.searchParams.get('to'), 'family+menu@ourskylight.com');
+  assert.equal(gmail.searchParams.get('body'), 'Dinner: Jalapeño & lime\r\nEmoji: 🍋? #fresh');
 }
 
 {

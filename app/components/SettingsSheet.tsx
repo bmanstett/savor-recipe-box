@@ -7,18 +7,20 @@ import {
 import { type ChangeEvent, useRef, useState } from 'react';
 import type { StoredGitHubConnection } from '../../lib/client-cache';
 import type { GitHubConnectInput, SyncPresentation } from '../../lib/sync-types';
-import type { GroceryCategory, HouseholdPreferences } from '../../lib/types';
+import type { GroceryCategory, HouseholdPreferences, SkylightEmailApp } from '../../lib/types';
 import { isValidSkylightDeviceEmail } from '../../lib/skylight';
 
 export function SettingsSheet({
-  preferences, connection, sync, installAvailable,
-  onInstall, onSave, onExport, onImport, onConnectGitHub, onDisconnectGitHub, onSyncNow, onClose,
+  preferences, skylightEmailApp, connection, sync, installAvailable,
+  onInstall, onChangeSkylightEmailApp, onSave, onExport, onImport, onConnectGitHub, onDisconnectGitHub, onSyncNow, onClose,
 }: {
   preferences: HouseholdPreferences;
+  skylightEmailApp: SkylightEmailApp;
   connection: StoredGitHubConnection | null;
   sync: SyncPresentation;
   installAvailable: boolean;
   onInstall: () => Promise<void>;
+  onChangeSkylightEmailApp: (value: SkylightEmailApp) => void;
   onSave: (preferences: HouseholdPreferences) => Promise<void>;
   onExport: () => Promise<void>;
   onImport: (file: File) => Promise<void>;
@@ -130,6 +132,7 @@ export function SettingsSheet({
           <section className="settings-section">
             <div className="settings-section-heading"><span><Mail size={19} /></span><div><h2>Skylight Sidekick</h2><p>Send a planned week to your Calendar's native Meal Planner.</p></div></div>
             <label className="field-label">Skylight device email<input type="email" value={skylightEmail} onChange={(event) => setSkylightEmail(event.target.value)} autoCapitalize="none" autoComplete="off" spellCheck={false} placeholder="your-calendar@ourskylight.com" /><small>Optional. Find this address in the Skylight app. It stays with your private household preferences.</small></label>
+            <label className="field-label">Default email app<select value={skylightEmailApp} onChange={(event) => onChangeSkylightEmailApp(event.target.value as SkylightEmailApp)}><option value="gmail">Gmail app</option><option value="device-default">Device default mail app</option></select><small>Saved immediately on this device. Gmail must be installed; device default uses the mail app selected in your phone or computer settings.</small></label>
             <div className="github-security-note"><ShieldCheck size={18} /><div><strong>Drafts only</strong><p>Savor opens your email app with a prepared menu. Nothing is sent automatically, and Sidekick meal imports require Calendar Plus.</p></div></div>
           </section>
 

@@ -1,5 +1,6 @@
-import type { BootstrapData } from './types';
+import type { BootstrapData, SkylightEmailApp } from './types';
 import { aggregateRecipes, makeId, parseIngredientLine } from './domain';
+import { normalizeSkylightEmailApp } from './skylight';
 import type { GroceryItem, MealPlanEntry, Recipe } from './types';
 
 const DB_NAME = 'savor-local-cache';
@@ -7,6 +8,7 @@ const DB_VERSION = 2;
 const STATE_STORE = 'state';
 const MEDIA_STORE = 'media';
 const LEGACY_QUEUE_STORE = 'mutation-queue';
+const SKYLIGHT_EMAIL_APP_KEY = 'skylight-email-app';
 
 export interface Tombstones {
   recipes: Record<string, string>;
@@ -215,6 +217,15 @@ export async function readLocalSnapshot(): Promise<LocalSnapshot | null> {
 
 export function saveLocalSnapshot(snapshot: LocalSnapshot): Promise<void> {
   return writeValue(STATE_STORE, 'snapshot', snapshot);
+}
+
+export async function readSkylightEmailApp(): Promise<SkylightEmailApp> {
+  const value = await readValue<unknown>(STATE_STORE, SKYLIGHT_EMAIL_APP_KEY);
+  return normalizeSkylightEmailApp(value);
+}
+
+export function saveSkylightEmailApp(value: SkylightEmailApp): Promise<void> {
+  return writeValue(STATE_STORE, SKYLIGHT_EMAIL_APP_KEY, value);
 }
 
 export function readGitHubConnection(): Promise<StoredGitHubConnection | null> {

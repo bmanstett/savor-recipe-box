@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import { useCallback, useEffect, useState, type Dispatch, type SetStateAction } from 'react';
 import { aggregateRecipes, draftToRecipe, makeId, parseIngredientLine } from '../../lib/domain';
-import type { StoredGitHubConnection } from '../../lib/client-cache';
+import { readSkylightEmailApp, saveSkylightEmailApp, type StoredGitHubConnection } from '../../lib/client-cache';
 import { parseBackupFile } from '../../lib/github-sync';
 import type { RecommendedMeal } from '../../lib/meal-week-optimizer';
 import type { GitHubConnectInput, SyncPresentation } from '../../lib/sync-types';
@@ -14,7 +14,7 @@ import { MEAL_TYPES } from '../../lib/types';
 import type {
   MealType,
   BootstrapData, GroceryCategory, GroceryItem, HouseholdPreferences,
-  MealPlanEntry, Recipe, RecipeDraft,
+  MealPlanEntry, Recipe, RecipeDraft, SkylightEmailApp,
 } from '../../lib/types';
 import { AddRecipeSheet } from './AddRecipeSheet';
 import { CookingMode } from './CookingMode';
@@ -82,11 +82,25 @@ export function SavorApp({
   const [online, setOnline] = useState(true);
   const [toast, setToast] = useState<ToastState>(null);
   const [installPrompt, setInstallPrompt] = useState<Event | null>(null);
+  const [skylightEmailApp, setSkylightEmailApp] = useState<SkylightEmailApp>('gmail');
 
   const showToast = useCallback((next: ToastState) => {
     setToast(next);
     window.setTimeout(() => setToast((current) => current === next ? null : current), 4_800);
   }, []);
+
+  useEffect(() => {
+    let active = true;
+    readSkylightEmailApp().then((value) => {
+      if (active) setSkylightEmailApp(value);
+    }).catch(() => undefined);
+    return () => { active = false; };
+  }, []);
+
+  const changeSkylightEmailApp = useCallback((value: SkylightEmailApp) => {
+    setSkylightEmailApp(value);
+    saveSkylightEmailApp(value).catch(() => showToast({ message: 'Savor could not remember that email app on this device.' }));
+  }, [showToast]);
 
   useEffect(() => {
     const initialSync = window.setTimeout(() => {
@@ -436,7 +450,7 @@ export function SavorApp({
             <RecipesView recipes={data.recipes} query={query} onQueryChange={setQuery} filter={recipeFilter} onFilterChange={setRecipeFilter} onOpenRecipe={setSelectedRecipe} onToggleFavorite={toggleFavorite} onAddRecipe={() => setAddOpen(true)} onPlanRecipes={planRecipes} onGenerateGroceries={generateGroceries} />
           ) : null}
           {view === 'plan' ? (
-            <MealPlannerView recipes={data.recipes} entries={data.mealPlan} groceryItems={data.groceryItems} skylightEmail={data.preferences.skylightDeviceEmail ?? null} onOpenSettings={() => setSettingsOpen(true)} onPlanRecipes={planRecipes} onRemoveMeal={removeMeal} onOpenRecipe={setSelectedRecipe} onGenerateGroceries={(entries) => generateGroceries(undefined, entries)} onApplyOptimization={applyMealOptimization} />
+            <MealPlannerView recipes={data.recipes} entries={data.mealPlan} groceryItems={data.groceryItems} skylightEmail={data.preferences.skylightDeviceEmail ?? null} skylightEmailApp={skylightEmailApp} onChangeSkylightEmailApp={changeSkylightEmailApp} onOpenSettings={() => setSettingsOpen(true)} onPlanRecipes={planRecipes} onRemoveMeal={removeMeal} onOpenRecipe={setSelectedRecipe} onGenerateGroceries={(entries) => generateGroceries(undefined, entries)} onApplyOptimization={applyMealOptimization} />
           ) : null}
           {view === 'grocery' ? (
             <GroceryView items={data.groceryItems} preferences={data.preferences} onToggle={toggleGroceryItem} onAdd={addGroceryItem} onDelete={deleteGrocery} onChangeCategory={updateGroceryCategory} onGenerate={() => generateGroceries()} />
@@ -480,10 +494,12 @@ export function SavorApp({
       {settingsOpen ? (
         <SettingsSheet
           preferences={data.preferences}
+          skylightEmailApp={skylightEmailApp}
           connection={connection}
           sync={sync}
           installAvailable={Boolean(installPrompt)}
           onInstall={installApp}
+          onChangeSkylightEmailApp={changeSkylightEmailApp}
           onSave={savePreferences}
           onExport={exportBackup}
           onImport={importBackup}

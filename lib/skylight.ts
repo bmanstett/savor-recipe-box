@@ -1,4 +1,4 @@
-import type { MealPlanEntry, Recipe } from './types';
+import type { MealPlanEntry, Recipe, SkylightEmailApp } from './types';
 
 const SKYLIGHT_EMAIL_PATTERN = /^[A-Z0-9][A-Z0-9._+-]{0,63}@ourskylight\.com$/i;
 const MEAL_TYPE_ORDER: Record<MealPlanEntry['mealType'], number> = {
@@ -15,6 +15,10 @@ export interface SkylightEmailDraft {
 
 export function isValidSkylightDeviceEmail(value: string): boolean {
   return SKYLIGHT_EMAIL_PATTERN.test(value.trim());
+}
+
+export function normalizeSkylightEmailApp(value: unknown): SkylightEmailApp {
+  return value === 'device-default' ? 'device-default' : 'gmail';
 }
 
 function dateFromKey(value: string): Date {
@@ -69,5 +73,24 @@ export function formatSkylightWeek(
 
 export function skylightMailto(email: string, draft: SkylightEmailDraft): string {
   // Skylight treats the subject as a person/name tag and prepends it to imported meal titles.
-  return `mailto:${email.trim().toLowerCase()}?body=${encodeURIComponent(draft.body)}`;
+  return `mailto:${email.trim().toLowerCase()}?body=${encodeURIComponent(normalizeEmailBody(draft.body))}`;
+}
+
+export function skylightGmailComposeUrl(email: string, draft: SkylightEmailDraft): string {
+  // Intentionally omit the subject: Skylight prepends subjects to imported meal titles.
+  return `googlegmail:///co?to=${encodeURIComponent(email.trim().toLowerCase())}&body=${encodeURIComponent(normalizeEmailBody(draft.body))}`;
+}
+
+export function skylightEmailDraftUrl(
+  email: string,
+  draft: SkylightEmailDraft,
+  emailApp: SkylightEmailApp = 'gmail',
+): string {
+  return emailApp === 'device-default'
+    ? skylightMailto(email, draft)
+    : skylightGmailComposeUrl(email, draft);
+}
+
+function normalizeEmailBody(body: string): string {
+  return body.replace(/\r?\n/g, '\r\n');
 }

@@ -1,6 +1,7 @@
 export type SourceType = 'url' | 'photo' | 'screenshot' | 'pasted-text' | 'manual';
 export const MEAL_TYPES = ['breakfast', 'lunch', 'snack', 'dinner'] as const;
 export type MealType = (typeof MEAL_TYPES)[number];
+export type SkylightEmailApp = 'gmail' | 'device-default';
 export type GroceryCategory =
   | 'Produce'
   | 'Meat & Seafood'

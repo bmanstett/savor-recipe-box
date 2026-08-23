@@ -24,7 +24,7 @@ GitHub stores synchronized state at `savor/v1/state.json` and compressed photos 
 
 ## Skylight and grocery printing
 
-- Add the Calendar's `@ourskylight.com` device email in **Household settings → Skylight Sidekick**. From the meal planner, **Send week to Skylight** opens a prepared email draft; the user reviews and sends it. Native menu imports require Skylight Calendar Plus.
+- Add the Calendar's `@ourskylight.com` device email in **Household settings → Skylight Sidekick**. From the meal planner, **Send week to Skylight** opens a prepared email draft; the user reviews and sends it. Gmail is the per-device default, and the review dialog or household settings can switch future drafts to the device's default mail app. Native menu imports require Skylight Calendar Plus.
 - **Print list** on the grocery screen opens the browser print dialog with a clean, store-section-ordered layout. The current **Hide checked** setting controls which items are included.
 
 ## Meal planning and prep optimization
