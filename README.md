@@ -18,7 +18,9 @@ Run `pnpm lint`, `pnpm test:domain`, and `pnpm build` before publishing.
 3. Give each token access to only `savor-data`, with **Contents: read and write**. Do not grant the token access to this Pages repository.
 4. Open Savor settings and enter the repository owner, repository name, and token.
 
-The token stays only in memory for the open page and is never committed, backed up, written to browser storage, or cached by the service worker. Reloading or closing the page requires reconnecting with that device's token. The public Pages bundle contains no recipes or household credentials beyond the bundled demo cookbook.
+The token is saved in that device's browser storage so reloads, closing the app, and normal app updates do not require another login. It is stored separately from household data and is never committed, backed up, synchronized to GitHub, or cached by the service worker. Savor removes a saved credential when GitHub reports that it is invalid or cannot access the configured repository, when GitHub sync is disconnected, or when the app's site data is deleted. The public Pages bundle contains no recipes or household credentials beyond the bundled demo cookbook.
+
+Because Savor is a static web app, the saved token is readable by code running on Savor's origin rather than protected by an OS keychain or an HttpOnly cookie. Keep each token limited to the private data repository, use a separate token per device, and revoke a device's token from GitHub if that device is lost.
 
 GitHub stores synchronized state at `savor/v1/state.json` and compressed photos under `savor/v1/media/` in the private data repository.
 

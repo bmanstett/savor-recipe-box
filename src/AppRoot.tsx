@@ -1,12 +1,13 @@
-import { Github, KeyRound } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState, type SetStateAction } from 'react';
 import { SavorApp } from '../app/components/SavorApp';
 import {
   EMPTY_TOMBSTONES,
-  clearGitHubConnection,
-  readGitHubConnection,
+  clearGitHubCredentials,
+  clearGitHubCredential,
+  readGitHubSession,
   readLocalSnapshot,
-  saveGitHubConnection,
+  saveGitHubCredentials,
+  saveGitHubConnectionForCredential,
   saveLocalSnapshot,
   type LocalSnapshot,
   type StoredGitHubConnection,
@@ -121,6 +122,12 @@ const LOCAL_STATUS: SyncPresentation = {
   message: 'Connect a private GitHub data repository to sync across devices.',
 };
 
+const TOKEN_REQUIRED_STATUS: SyncPresentation = {
+  phase: 'needs-token',
+  label: 'GitHub login needed',
+  message: 'Enter this device’s fine-grained token in Settings to resume sync.',
+};
+
 export function AppRoot() {
   const [snapshot, setSnapshot] = useState<LocalSnapshot | null>(null);
   const [connection, setConnection] = useState<StoredGitHubConnection | null>(null);
@@ -129,32 +136,51 @@ export function AppRoot() {
   const snapshotRef = useRef<LocalSnapshot | null>(null);
   const syncingRef = useRef(false);
   const initialPullRef = useRef(false);
+  const localSnapshotAvailableRef = useRef(false);
   const connectionGenerationRef = useRef(0);
+  const credentialIdRef = useRef<string | null>(null);
+  const disconnectingRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
-    Promise.all([readLocalSnapshot(), readGitHubConnection()]).then(([storedSnapshot, storedConnection]) => {
+    Promise.allSettled([readLocalSnapshot(), readGitHubSession()]).then(([snapshotResult, sessionResult]) => {
       if (cancelled) return;
+      const storedSnapshot = snapshotResult.status === 'fulfilled' ? snapshotResult.value : null;
+      const storedSession = sessionResult.status === 'fulfilled'
+        ? sessionResult.value
+        : { connection: null, credential: null };
+      const { connection: storedConnection, credential: storedCredential } = storedSession;
       const nextSnapshot = storedSnapshot ?? seedSnapshot();
+      const credentialMatches = Boolean(storedConnection && storedCredential
+        && storedCredential.owner === storedConnection.owner.trim().toLowerCase()
+        && storedCredential.repo === storedConnection.repo.trim().toLowerCase());
+      const storedToken = credentialMatches ? storedCredential?.token ?? null : null;
+      localSnapshotAvailableRef.current = snapshotResult.status === 'fulfilled';
       snapshotRef.current = nextSnapshot;
+      credentialIdRef.current = credentialMatches ? storedCredential?.id ?? null : null;
       setSnapshot(nextSnapshot);
       setConnection(storedConnection);
-      if (storedConnection && !token) {
-        setSync({ phase: 'needs-token', label: 'GitHub login needed', message: 'Paste this device’s fine-grained token to resume sync.' });
-      } else if (storedConnection && token && !navigator.onLine) {
+      setToken(storedConnection ? storedToken ?? '' : '');
+      if (storedCredential && !credentialMatches) void clearGitHubCredential(storedCredential.id).catch(() => undefined);
+      if (storedConnection && !storedToken) {
+        setSync(TOKEN_REQUIRED_STATUS);
+      } else if (storedConnection && storedToken && !navigator.onLine) {
         setSync({ phase: 'offline', label: 'Offline', message: 'Changes are safe on this device and will sync when you reconnect.' });
+      } else if (storedConnection && storedToken) {
+        setSync({ phase: 'connecting', label: 'Connecting to GitHub…', message: 'Using the token saved on this device.' });
       }
-    }).catch(() => {
-      const nextSnapshot = seedSnapshot();
-      snapshotRef.current = nextSnapshot;
-      setSnapshot(nextSnapshot);
-      setSync({ phase: 'error', label: 'Local storage unavailable', message: 'Savor could not open its offline storage.' });
+      if (sessionResult.status === 'rejected') {
+        setSync({ phase: 'error', label: 'Saved GitHub login unavailable', message: 'Your local recipes are open, but Savor could not read the saved GitHub login on this device.' });
+      }
+      if (snapshotResult.status === 'rejected') {
+        setSync({ phase: 'error', label: 'Local storage unavailable', message: 'Savor could not open its offline storage. Changes will not be saved until this is resolved.' });
+      }
     });
     return () => { cancelled = true; };
   }, []);
 
   useEffect(() => {
-    if (!snapshot) return;
+    if (!snapshot || !localSnapshotAvailableRef.current) return;
     snapshotRef.current = snapshot;
     const timer = window.setTimeout(() => saveLocalSnapshot(snapshot).catch(() => {
       setSync({ phase: 'error', label: 'Local save failed', message: 'Browser storage could not save this change. Export a backup before closing Savor.' });
@@ -167,21 +193,30 @@ export function AppRoot() {
     selectedConnection: StoredGitHubConnection,
     selectedToken: string,
   ) => {
-    if (syncingRef.current) return;
+    if (!localSnapshotAvailableRef.current) {
+      setSync({ phase: 'error', label: 'Local storage unavailable', message: 'GitHub sync is paused so an unsaved temporary copy cannot replace your household data.' });
+      return;
+    }
+    if (syncingRef.current || disconnectingRef.current) return;
     if (!navigator.onLine) {
       setSync({ phase: 'offline', label: 'Offline', message: 'Changes are safe on this device and will sync when you reconnect.' });
       return;
     }
     if (!selectedToken) {
-      setSync({ phase: 'needs-token', label: 'GitHub login needed', message: 'Paste this device’s fine-grained token to resume sync.' });
+      setSync(TOKEN_REQUIRED_STATUS);
       return;
     }
     const requestGeneration = connectionGenerationRef.current;
+    const requestCredentialId = credentialIdRef.current;
     initialPullRef.current = true;
     syncingRef.current = true;
     setSync({ phase: 'syncing', label: 'Syncing with GitHub…', message: `Updating ${selectedConnection.owner}/${selectedConnection.repo}.` });
     try {
       const result = await syncGitHubSnapshot(selectedSnapshot, selectedConnection, selectedToken);
+      if (requestGeneration !== connectionGenerationRef.current) return;
+      if (!requestCredentialId) return;
+      const connectionSaved = await saveGitHubConnectionForCredential(result.connection, requestCredentialId);
+      if (!connectionSaved) return;
       if (requestGeneration !== connectionGenerationRef.current) return;
       const latest = snapshotRef.current;
       const committed = latest && latest !== selectedSnapshot
@@ -190,12 +225,26 @@ export function AppRoot() {
       snapshotRef.current = committed;
       setSnapshot(committed);
       setConnection(result.connection);
-      await Promise.all([saveLocalSnapshot(committed), saveGitHubConnection(result.connection)]);
+      await saveLocalSnapshot(committed);
+      if (requestGeneration !== connectionGenerationRef.current) return;
       setSync({ phase: 'synced', label: 'Synced privately', message: `Up to date in ${result.connection.owner}/${result.connection.repo}.` });
     } catch (error) {
       if (requestGeneration !== connectionGenerationRef.current) return;
       const message = error instanceof Error ? error.message : 'GitHub sync failed.';
-      const needsToken = error instanceof GitHubSyncError && (error.status === 401 || error.status === 403 || error.status === 404);
+      const needsToken = error instanceof GitHubSyncError && [401, 403, 404].includes(error.status);
+      if (needsToken) {
+        if (requestCredentialId) {
+          try {
+            await clearGitHubCredential(requestCredentialId);
+          } catch {
+            setSync({ phase: 'error', label: 'Saved token could not be removed', message: 'Use Stop GitHub sync to try again, or clear Savor’s site data before closing the app.' });
+            return;
+          }
+        }
+        if (requestGeneration !== connectionGenerationRef.current) return;
+        setToken('');
+        credentialIdRef.current = null;
+      }
       setSync({ phase: needsToken ? 'needs-token' : 'error', label: needsToken ? 'GitHub login needed' : 'Sync needs attention', message });
     } finally {
       syncingRef.current = false;
@@ -222,12 +271,22 @@ export function AppRoot() {
   }, []);
 
   const connect = useCallback(async (input: GitHubConnectInput) => {
-    connectionGenerationRef.current += 1;
+    if (!localSnapshotAvailableRef.current) throw new Error('Local storage is unavailable. Reopen Savor before connecting GitHub.');
+    const connectionGeneration = connectionGenerationRef.current + 1;
+    connectionGenerationRef.current = connectionGeneration;
     setSync({ phase: 'connecting', label: 'Checking GitHub…', message: 'Verifying the private data repository and token permissions.' });
-    const result = await validateGitHubConnection(input.token, input.owner, input.repo);
-    setToken(input.token.trim());
+    const normalizedToken = input.token.trim();
+    const result = await validateGitHubConnection(normalizedToken, input.owner, input.repo);
+    if (connectionGeneration !== connectionGenerationRef.current) return;
+    const credential = await saveGitHubCredentials(result.connection, normalizedToken);
+    if (connectionGeneration !== connectionGenerationRef.current) {
+      await clearGitHubCredentials(credential.id).catch(() => undefined);
+      return;
+    }
+    credentialIdRef.current = credential.id;
+    if (navigator.storage?.persist) void navigator.storage.persist().catch(() => false);
+    setToken(normalizedToken);
     setConnection(result.connection);
-    await saveGitHubConnection(result.connection);
     const current = snapshotRef.current;
     if (!current) return;
     const withUser: LocalSnapshot = {
@@ -238,15 +297,30 @@ export function AppRoot() {
     };
     snapshotRef.current = withUser;
     setSnapshot(withUser);
-    await runSync(withUser, result.connection, input.token.trim());
+    await runSync(withUser, result.connection, normalizedToken);
   }, [runSync]);
 
   const disconnect = useCallback(async () => {
-    connectionGenerationRef.current += 1;
-    setToken('');
-    setConnection(null);
-    await clearGitHubConnection();
-    setSync(LOCAL_STATUS);
+    if (disconnectingRef.current) return;
+    const disconnectGeneration = connectionGenerationRef.current + 1;
+    connectionGenerationRef.current = disconnectGeneration;
+    disconnectingRef.current = true;
+    setSync({ phase: 'connecting', label: 'Removing saved token…', message: 'Stopping private GitHub sync on this device.' });
+    try {
+      await clearGitHubCredentials();
+      if (disconnectGeneration !== connectionGenerationRef.current) return;
+      credentialIdRef.current = null;
+      setToken('');
+      setConnection(null);
+      setSync(LOCAL_STATUS);
+    } catch {
+      if (disconnectGeneration === connectionGenerationRef.current) {
+        setSync({ phase: 'error', label: 'Could not stop GitHub sync', message: 'Savor could not remove the saved token from this device. Try again before closing the app.' });
+      }
+      throw new Error('Savor could not remove the saved GitHub token. Try again before closing the app.');
+    } finally {
+      disconnectingRef.current = false;
+    }
   }, []);
 
   const syncNow = useCallback(async () => {
@@ -271,9 +345,13 @@ export function AppRoot() {
     const handleOnline = () => {
       const current = snapshotRef.current;
       if (current && connection && token) runSync(current, connection, token);
+      else if (connection && !token) setSync(TOKEN_REQUIRED_STATUS);
       else setSync(LOCAL_STATUS);
     };
-    const handleOffline = () => setSync({ phase: 'offline', label: 'Offline', message: 'Changes are safe on this device and will sync when you reconnect.' });
+    const handleOffline = () => {
+      if (connection && !token) setSync(TOKEN_REQUIRED_STATUS);
+      else setSync({ phase: 'offline', label: 'Offline', message: 'Changes are safe on this device and will sync when you reconnect.' });
+    };
     const handleVisibility = () => { if (document.visibilityState === 'visible') handleOnline(); };
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
@@ -289,57 +367,17 @@ export function AppRoot() {
     return <div className="app-loading"><div className="loading-brand"><span>S</span>Savor</div><div className="loading-shell"><aside /><section><header /><div className="loading-hero" /></section></div><p>Opening your kitchen…</p></div>;
   }
 
-  if (connection && !token) {
-    return <GitHubUnlock connection={connection} onUnlock={(nextToken) => connect({ owner: connection.owner, repo: connection.repo, token: nextToken })} />;
-  }
-
   return (
     <SavorApp
       data={snapshot.data}
       setData={updateData}
       connection={connection}
+      hasGitHubToken={Boolean(token)}
       sync={sync}
-      startInSettings={!connection || !token}
+      startInSettings={!connection || !token || sync.phase === 'needs-token'}
       onConnectGitHub={connect}
       onDisconnectGitHub={disconnect}
       onSyncNow={syncNow}
     />
-  );
-}
-
-function GitHubUnlock({ connection, onUnlock }: {
-  connection: StoredGitHubConnection;
-  onUnlock: (token: string) => Promise<void>;
-}) {
-  const [token, setToken] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-
-  async function submit(event: React.FormEvent) {
-    event.preventDefault();
-    setBusy(true);
-    setError('');
-    try { await onUnlock(token); }
-    catch (caught) { setError(caught instanceof Error ? caught.message : 'GitHub login failed.'); }
-    finally { setBusy(false); }
-  }
-
-  return (
-    <main className="github-lock-screen">
-      <section className="github-lock-card">
-        <div className="lock-brand"><span>S</span><strong>Savor</strong></div>
-        <div className="lock-icon"><KeyRound size={24} /></div>
-        <p className="eyebrow">Private household sync</p>
-        <h1>Unlock your kitchen</h1>
-        <p>Enter this device’s fine-grained GitHub token to load the latest private household data.</p>
-        <div className="lock-repository"><Github size={16} /><span><strong>{connection.owner}/{connection.repo}</strong><small>Private data repository</small></span></div>
-        <form onSubmit={submit}>
-          <label className="field-label">Fine-grained token<input autoFocus type="password" value={token} onChange={(event) => setToken(event.target.value)} autoComplete="off" spellCheck={false} placeholder="github_pat_…" /></label>
-          {error ? <div className="settings-error" role="alert">{error}</div> : null}
-          <button className="button button-primary full-button" type="submit" disabled={busy || !token.trim()}>{busy ? 'Checking GitHub…' : 'Unlock with GitHub'}</button>
-        </form>
-        <small className="lock-note">The token stays only in memory for this open page. Reloading or closing the page locks Savor again.</small>
-      </section>
-    </main>
   );
 }

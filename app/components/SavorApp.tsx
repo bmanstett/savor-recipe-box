@@ -58,12 +58,13 @@ function currentWeekEntries(entries: MealPlanEntry[]): MealPlanEntry[] {
 }
 
 export function SavorApp({
-  data, setData, connection, sync, startInSettings,
+  data, setData, connection, hasGitHubToken, sync, startInSettings,
   onConnectGitHub, onDisconnectGitHub, onSyncNow,
 }: {
   data: BootstrapData;
   setData: Dispatch<SetStateAction<BootstrapData>>;
   connection: StoredGitHubConnection | null;
+  hasGitHubToken: boolean;
   sync: SyncPresentation;
   startInSettings: boolean;
   onConnectGitHub: (input: GitHubConnectInput) => Promise<void>;
@@ -83,6 +84,10 @@ export function SavorApp({
   const [toast, setToast] = useState<ToastState>(null);
   const [installPrompt, setInstallPrompt] = useState<Event | null>(null);
   const [skylightEmailApp, setSkylightEmailApp] = useState<SkylightEmailApp>('gmail');
+
+  useEffect(() => {
+    if (startInSettings) setSettingsOpen(true);
+  }, [startInSettings]);
 
   const showToast = useCallback((next: ToastState) => {
     setToast(next);
@@ -312,8 +317,9 @@ export function SavorApp({
 
   async function exportBackup() {
     try {
+      const { recipes, mealPlan, groceryItems, preferences, syncedAt } = data;
       const blob = new Blob([
-        JSON.stringify({ format: 'savor-household-backup', version: 1, exportedAt: new Date().toISOString(), ...data, user: undefined }, null, 2),
+        JSON.stringify({ format: 'savor-household-backup', version: 1, exportedAt: new Date().toISOString(), recipes, mealPlan, groceryItems, preferences, syncedAt }, null, 2),
       ], { type: 'application/json' });
       const href = URL.createObjectURL(blob);
       const anchor = document.createElement('a');
@@ -496,6 +502,7 @@ export function SavorApp({
           preferences={data.preferences}
           skylightEmailApp={skylightEmailApp}
           connection={connection}
+          hasGitHubToken={hasGitHubToken}
           sync={sync}
           installAvailable={Boolean(installPrompt)}
           onInstall={installApp}

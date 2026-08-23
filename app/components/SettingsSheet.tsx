@@ -11,12 +11,13 @@ import type { GroceryCategory, HouseholdPreferences, SkylightEmailApp } from '..
 import { isValidSkylightDeviceEmail } from '../../lib/skylight';
 
 export function SettingsSheet({
-  preferences, skylightEmailApp, connection, sync, installAvailable,
+  preferences, skylightEmailApp, connection, hasGitHubToken, sync, installAvailable,
   onInstall, onChangeSkylightEmailApp, onSave, onExport, onImport, onConnectGitHub, onDisconnectGitHub, onSyncNow, onClose,
 }: {
   preferences: HouseholdPreferences;
   skylightEmailApp: SkylightEmailApp;
   connection: StoredGitHubConnection | null;
+  hasGitHubToken: boolean;
   sync: SyncPresentation;
   installAvailable: boolean;
   onInstall: () => Promise<void>;
@@ -38,10 +39,11 @@ export function SettingsSheet({
   const [token, setToken] = useState('');
   const [saving, setSaving] = useState(false);
   const [connecting, setConnecting] = useState(false);
+  const [disconnecting, setDisconnecting] = useState(false);
   const [importing, setImporting] = useState(false);
   const [error, setError] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
-  const needsLogin = !connection || sync.phase === 'needs-token';
+  const needsLogin = !connection || !hasGitHubToken || sync.phase === 'needs-token';
 
   function move(index: number, direction: -1 | 1) {
     const target = index + direction;
@@ -83,6 +85,18 @@ export function SettingsSheet({
     } finally { setConnecting(false); }
   }
 
+  async function disconnectGitHub() {
+    setDisconnecting(true);
+    setError('');
+    try {
+      await onDisconnectGitHub();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'The saved GitHub token could not be removed.');
+    } finally {
+      setDisconnecting(false);
+    }
+  }
+
   async function importFile(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -104,12 +118,13 @@ export function SettingsSheet({
             <div className="settings-section-heading"><span><Github size={19} /></span><div><h2>Private GitHub sync</h2><p>The app and household data live in separate repositories.</p></div></div>
             {needsLogin ? (
               <div className="github-connect-card">
+                {sync.phase === 'needs-token' ? <div className="settings-error" role="alert">{sync.message}</div> : null}
                 <div className="github-security-note"><KeyRound size={18} /><div><strong>Use a fine-grained personal access token</strong><p>Select only the private <code>{repo || 'savor-data'}</code> repository and grant Contents read/write. Do not grant access to the public app repository.</p></div></div>
                 <div className="github-repo-fields">
                   <label className="field-label">Repository owner<input value={owner} onChange={(event) => setOwner(event.target.value)} autoCapitalize="none" spellCheck={false} placeholder="github-username" /></label>
                   <label className="field-label">Private data repository<input value={repo} onChange={(event) => setRepo(event.target.value)} autoCapitalize="none" spellCheck={false} placeholder="savor-data" /></label>
                 </div>
-                <label className="field-label">Fine-grained token<input type="password" value={token} onChange={(event) => setToken(event.target.value)} autoComplete="off" spellCheck={false} placeholder="github_pat_…" /><small>Kept only in memory for this open page—not saved to browser storage, backups, GitHub, or the service worker.</small></label>
+                <label className="field-label">Fine-grained token<input type="password" value={token} onChange={(event) => setToken(event.target.value)} autoComplete="off" spellCheck={false} placeholder="github_pat_…" /><small><strong>Saved on this device.</strong> Savor reconnects automatically after you close or restart it. The token is never included in backups, synced household data, or the service-worker cache.</small></label>
                 <div className="github-connect-actions">
                   <a className="button button-secondary" href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noreferrer">Create token<ExternalLink size={14} /></a>
                   <button className="button button-primary" type="button" disabled={connecting || !owner.trim() || !repo.trim() || !token.trim()} onClick={connectGitHub}>{connecting ? 'Checking…' : connection ? 'Reconnect GitHub' : 'Connect GitHub'}</button>
@@ -122,9 +137,9 @@ export function SettingsSheet({
                 <div className="connected-repo"><span><Github size={16} /></span><div><strong>{connection.owner}/{connection.repo}</strong><small>@{connection.username} · {connection.branch}</small></div></div>
                 <div className="github-connect-actions">
                   <button className="button button-secondary" type="button" disabled={sync.phase === 'syncing'} onClick={onSyncNow}><RefreshCw className={sync.phase === 'syncing' ? 'spin' : ''} size={15} />{sync.phase === 'syncing' ? 'Syncing…' : 'Sync now'}</button>
-                  <button className="button button-ghost signout-button" type="button" onClick={onDisconnectGitHub}><Unplug size={15} />Stop GitHub sync</button>
+                  <button className="button button-ghost signout-button" type="button" disabled={disconnecting} onClick={disconnectGitHub}><Unplug size={15} />{disconnecting ? 'Removing…' : 'Stop GitHub sync'}</button>
                 </div>
-                <p className="github-helper">Disconnecting removes the session token but does not revoke it. Revoke lost-device tokens in GitHub settings.</p>
+                <p className="github-helper">Savor reconnects automatically until this token expires, is revoked, you disconnect, or Savor’s site data is removed. Disconnecting does not revoke it at GitHub.</p>
               </div>
             )}
           </section>

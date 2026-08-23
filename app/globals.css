@@ -730,20 +730,6 @@ h1, h2, h3 { text-wrap: balance; }
 .fatal-error > span { display: grid; width: 52px; height: 52px; margin-bottom: 18px; place-items: center; border-radius: 17px; background: var(--terracotta-soft); color: var(--terracotta); font-family: var(--serif); font-size: 22px; font-weight: 800; }
 .fatal-error h1 { max-width: 600px; margin: 0 0 10px; font-family: var(--serif); font-size: clamp(36px, 6vw, 58px); line-height: 0.98; letter-spacing: -0.05em; }
 .fatal-error > p:not(.eyebrow) { max-width: 540px; margin-bottom: 22px; color: var(--muted); font-size: 12px; line-height: 1.6; }
-.github-lock-screen { display: grid; min-height: 100vh; place-items: center; padding: 24px; background: radial-gradient(circle at top, #fffdf7 0, var(--paper) 58%); }
-.github-lock-card { width: min(440px, 100%); padding: 34px; border: 1px solid var(--line); border-radius: 25px; background: var(--surface); box-shadow: var(--shadow-float); text-align: center; }
-.lock-brand { display: inline-flex; align-items: center; gap: 8px; color: var(--sage); font-family: var(--serif); font-size: 21px; }
-.lock-brand > span { display: grid; width: 32px; height: 32px; place-items: center; border-radius: 10px; background: var(--sage); color: white; font-size: 15px; }
-.lock-icon { display: grid; width: 52px; height: 52px; margin: 29px auto 18px; place-items: center; border-radius: 17px; background: var(--sage-soft); color: var(--sage); }
-.github-lock-card h1 { margin: 0; font-family: var(--serif); font-size: 38px; letter-spacing: -0.045em; }
-.github-lock-card > p:not(.eyebrow) { max-width: 340px; margin: 10px auto 19px; color: var(--muted); font-size: 10px; line-height: 1.55; }
-.lock-repository { display: flex; align-items: center; gap: 9px; padding: 11px 13px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-soft); text-align: left; }
-.lock-repository > span, .lock-repository strong, .lock-repository small { display: block; }
-.lock-repository small { margin-top: 2px; color: var(--muted); font-size: 7px; }
-.github-lock-card form { display: grid; gap: 12px; margin-top: 18px; text-align: left; }
-.github-lock-card .settings-error { margin: 0; }
-.lock-note { display: block; margin-top: 15px; color: var(--muted); font-size: 7px; line-height: 1.5; }
-
 @media (max-width: 1280px) {
   :root { --sidebar-width: 210px; }
   .app-sidebar { padding-inline: 17px; }

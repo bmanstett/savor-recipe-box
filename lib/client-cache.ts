@@ -9,6 +9,8 @@ const STATE_STORE = 'state';
 const MEDIA_STORE = 'media';
 const LEGACY_QUEUE_STORE = 'mutation-queue';
 const SKYLIGHT_EMAIL_APP_KEY = 'skylight-email-app';
+const GITHUB_CONNECTION_KEY = 'github-connection';
+const GITHUB_TOKEN_KEY = 'github-token';
 
 export interface Tombstones {
   recipes: Record<string, string>;
@@ -37,6 +39,20 @@ export interface StoredGitHubConnection {
   username: string;
   connectedAt: string;
   lastSyncAt: string | null;
+}
+
+export interface StoredGitHubCredential {
+  version: 1;
+  id: string;
+  token: string;
+  owner: string;
+  repo: string;
+  savedAt: string;
+}
+
+export interface StoredGitHubSession {
+  connection: StoredGitHubConnection | null;
+  credential: StoredGitHubCredential | null;
 }
 
 export const EMPTY_TOMBSTONES: Tombstones = {
@@ -228,16 +244,139 @@ export function saveSkylightEmailApp(value: SkylightEmailApp): Promise<void> {
   return writeValue(STATE_STORE, SKYLIGHT_EMAIL_APP_KEY, value);
 }
 
-export function readGitHubConnection(): Promise<StoredGitHubConnection | null> {
-  return readValue<StoredGitHubConnection>(STATE_STORE, 'github-connection');
+export async function saveGitHubCredentials(connection: StoredGitHubConnection, token: string): Promise<StoredGitHubCredential> {
+  const normalized = token.trim();
+  if (!normalized) throw new Error('A GitHub token is required.');
+  const credential: StoredGitHubCredential = {
+    version: 1,
+    id: crypto.randomUUID(),
+    token: normalized,
+    owner: connection.owner.trim().toLowerCase(),
+    repo: connection.repo.trim().toLowerCase(),
+    savedAt: new Date().toISOString(),
+  };
+  const db = await openCache();
+  await new Promise<void>((resolve, reject) => {
+    const transaction = db.transaction(STATE_STORE, 'readwrite');
+    const store = transaction.objectStore(STATE_STORE);
+    store.put(connection, GITHUB_CONNECTION_KEY);
+    store.put(credential, GITHUB_TOKEN_KEY);
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => { db.close(); reject(transaction.error); };
+  });
+  db.close();
+  return credential;
 }
 
-export function saveGitHubConnection(connection: StoredGitHubConnection): Promise<void> {
-  return writeValue(STATE_STORE, 'github-connection', connection);
+export async function readGitHubSession(): Promise<StoredGitHubSession> {
+  const db = await openCache();
+  const session = await new Promise<StoredGitHubSession>((resolve, reject) => {
+    const transaction = db.transaction(STATE_STORE, 'readwrite');
+    const store = transaction.objectStore(STATE_STORE);
+    const connectionRequest = store.get(GITHUB_CONNECTION_KEY);
+    const credentialRequest = store.get(GITHUB_TOKEN_KEY);
+    credentialRequest.onsuccess = () => {
+      if (credentialRequest.result !== undefined && !isStoredGitHubCredential(credentialRequest.result)) store.delete(GITHUB_TOKEN_KEY);
+    };
+    transaction.oncomplete = () => resolve({
+      connection: (connectionRequest.result as StoredGitHubConnection | undefined) ?? null,
+      credential: isStoredGitHubCredential(credentialRequest.result)
+        ? { ...credentialRequest.result, token: credentialRequest.result.token.trim() }
+        : null,
+    });
+    transaction.onerror = () => { db.close(); reject(transaction.error); };
+  });
+  db.close();
+  return session;
 }
 
-export function clearGitHubConnection(): Promise<void> {
-  return deleteValue(STATE_STORE, 'github-connection');
+export async function saveGitHubConnectionForCredential(
+  connection: StoredGitHubConnection,
+  expectedCredentialId: string,
+): Promise<boolean> {
+  const db = await openCache();
+  let saved = false;
+  await new Promise<void>((resolve, reject) => {
+    const transaction = db.transaction(STATE_STORE, 'readwrite');
+    const store = transaction.objectStore(STATE_STORE);
+    const request = store.get(GITHUB_TOKEN_KEY);
+    request.onsuccess = () => {
+      if (isStoredGitHubCredential(request.result) && request.result.id === expectedCredentialId) {
+        store.put(connection, GITHUB_CONNECTION_KEY);
+        saved = true;
+      }
+    };
+    request.onerror = () => transaction.abort();
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => { db.close(); reject(transaction.error); };
+    transaction.onabort = () => { db.close(); reject(transaction.error ?? request.error); };
+  });
+  db.close();
+  return saved;
+}
+
+export async function clearGitHubCredentials(expectedCredentialId?: string): Promise<void> {
+  const db = await openCache();
+  await new Promise<void>((resolve, reject) => {
+    const transaction = db.transaction(STATE_STORE, 'readwrite');
+    const store = transaction.objectStore(STATE_STORE);
+    const request = store.get(GITHUB_TOKEN_KEY);
+    request.onsuccess = () => {
+      const stored = request.result as unknown;
+      if (!expectedCredentialId || (isStoredGitHubCredential(stored) && stored.id === expectedCredentialId)) {
+        store.delete(GITHUB_CONNECTION_KEY);
+        store.delete(GITHUB_TOKEN_KEY);
+      }
+    };
+    request.onerror = () => transaction.abort();
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => { db.close(); reject(transaction.error); };
+    transaction.onabort = () => { db.close(); reject(transaction.error ?? request.error); };
+  });
+  db.close();
+}
+
+function isStoredGitHubCredential(value: unknown): value is StoredGitHubCredential {
+  if (!value || typeof value !== 'object') return false;
+  const credential = value as Partial<StoredGitHubCredential>;
+  return credential.version === 1
+    && typeof credential.id === 'string'
+    && Boolean(credential.id)
+    && typeof credential.token === 'string'
+    && Boolean(credential.token.trim())
+    && typeof credential.owner === 'string'
+    && Boolean(credential.owner)
+    && typeof credential.repo === 'string'
+    && Boolean(credential.repo)
+    && typeof credential.savedAt === 'string';
+}
+
+export async function readGitHubCredential(): Promise<StoredGitHubCredential | null> {
+  const value = await readValue<unknown>(STATE_STORE, GITHUB_TOKEN_KEY);
+  if (value === null) return null;
+  if (!isStoredGitHubCredential(value)) {
+    await deleteValue(STATE_STORE, GITHUB_TOKEN_KEY);
+    return null;
+  }
+  return { ...value, token: value.token.trim() };
+}
+
+export async function clearGitHubCredential(expectedId: string): Promise<void> {
+  const db = await openCache();
+  await new Promise<void>((resolve, reject) => {
+    const transaction = db.transaction(STATE_STORE, 'readwrite');
+    const store = transaction.objectStore(STATE_STORE);
+    const request = store.get(GITHUB_TOKEN_KEY);
+    request.onsuccess = () => {
+      const stored = request.result as unknown;
+      if (isStoredGitHubCredential(stored) && stored.id === expectedId) store.delete(GITHUB_TOKEN_KEY);
+    };
+    request.onerror = () => transaction.abort();
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => { db.close(); reject(transaction.error); };
+    transaction.onabort = () => { db.close(); reject(transaction.error ?? request.error); };
+  });
+  db.close();
 }
 
 export function readCachedMedia(path: string): Promise<string | null> {
