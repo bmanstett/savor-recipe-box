@@ -6,6 +6,7 @@ import {
   type Tombstones,
 } from './client-cache';
 import type { BootstrapData, GroceryItem, HouseholdPreferences, MealPlanEntry, Recipe } from './types';
+import { isValidSkylightDeviceEmail } from './skylight';
 
 const API_ROOT = 'https://api.github.com';
 const STATE_FORMAT = 'savor-github-sync';
@@ -117,7 +118,10 @@ function assertBootstrapData(value: unknown): asserts value is BootstrapData {
   });
   const validMeals = value.mealPlan.every((row) => isObject(row) && typeof row.id === 'string' && typeof row.recipeId === 'string' && typeof row.date === 'string' && typeof row.dateModified === 'string');
   const validGroceries = value.groceryItems.every((row) => isObject(row) && typeof row.id === 'string' && typeof row.ingredientName === 'string' && typeof row.normalizedIngredient === 'string' && typeof row.dateModified === 'string' && Array.isArray(row.recipeContributions));
-  const validPreferences = value.preferences.pantryStaples.every((item) => typeof item === 'string') && value.preferences.sectionOrder.every((item) => typeof item === 'string') && typeof value.preferences.excludePantryStaples === 'boolean';
+  const skylightEmail = value.preferences.skylightDeviceEmail;
+  const validSkylightEmail = skylightEmail === undefined || skylightEmail === null
+    || (typeof skylightEmail === 'string' && isValidSkylightDeviceEmail(skylightEmail));
+  const validPreferences = value.preferences.pantryStaples.every((item) => typeof item === 'string') && value.preferences.sectionOrder.every((item) => typeof item === 'string') && typeof value.preferences.excludePantryStaples === 'boolean' && validSkylightEmail;
   if (!validRecipes || !validMeals || !validGroceries) throw new GitHubSyncError('The GitHub data file contains invalid records.');
   if (!validPreferences) throw new GitHubSyncError('The GitHub data file contains invalid preferences.');
 }
@@ -342,6 +346,7 @@ function mergePreferences(base: HouseholdPreferences | undefined, local: Househo
     pantryStaples: threeWayValue(base.pantryStaples, local.pantryStaples, remote.pantryStaples),
     sectionOrder: threeWayValue(base.sectionOrder, local.sectionOrder, remote.sectionOrder),
     excludePantryStaples: threeWayValue(base.excludePantryStaples, local.excludePantryStaples, remote.excludePantryStaples),
+    skylightDeviceEmail: threeWayValue(base.skylightDeviceEmail ?? null, local.skylightDeviceEmail ?? null, remote.skylightDeviceEmail ?? null),
   };
 }
 

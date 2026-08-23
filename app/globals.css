@@ -292,6 +292,7 @@ h1, h2, h3 { text-wrap: balance; }
 .planner-summary .button-primary { flex: 0 0 auto; background: #fffaf0; color: var(--sage-dark); }
 
 /* Grocery */
+.grocery-print-heading { display: none; }
 .shopping-summary { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 18px; padding: 22px 26px 20px; border-radius: 24px; background: var(--sage-dark); color: white; }
 .shopping-summary-main { display: flex; align-items: center; gap: 16px; }
 .basket-seal { display: grid; width: 50px; height: 50px; flex: 0 0 auto; place-items: center; border-radius: 17px; background: rgb(255 255 255 / 10%); color: #f1c5b3; }
@@ -661,6 +662,8 @@ h1, h2, h3 { text-wrap: balance; }
   .home-recipe-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .home-recipe-card:last-child { display: none; }
   .filters-placeholder { display: none; }
+  .planner-toolbar { display: grid; }
+  .planner-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .grocery-body { grid-template-columns: minmax(0, 1fr); }
   .grocery-insight-panel { position: static; grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .staple-list { grid-column: 1 / -1; }
@@ -890,7 +893,7 @@ h1, h2, h3 { text-wrap: balance; }
 
 @media print {
   body { background: white; }
-  .savor-shell > .app-sidebar, .savor-shell > .app-main, .mobile-tabbar, .detail-topbar, .detail-primary-actions, .detail-favorite, .ingredients-column .button, .instructions-heading .button, .timer-suggestion, .toast { display: none !important; }
+  body:not(.print-grocery) .savor-shell > .app-sidebar, body:not(.print-grocery) .savor-shell > .app-main, body:not(.print-grocery) .mobile-tabbar, body:not(.print-grocery) .detail-topbar, body:not(.print-grocery) .detail-primary-actions, body:not(.print-grocery) .detail-favorite, body:not(.print-grocery) .ingredients-column .button, body:not(.print-grocery) .instructions-heading .button, body:not(.print-grocery) .timer-suggestion, body:not(.print-grocery) .toast { display: none !important; }
   .recipe-detail-layer { position: static; display: block; background: white; }
   .detail-scroll { overflow: visible; }
   .detail-hero { grid-template-columns: 230px 1fr; gap: 30px; padding: 20px 0 30px; }
@@ -898,4 +901,25 @@ h1, h2, h3 { text-wrap: balance; }
   .detail-intro h1 { font-size: 38px; }
   .recipe-body-grid { grid-template-columns: 0.8fr 1.2fr; gap: 45px; padding: 35px 0; }
   .instruction-list li p { font-size: 14px; }
+
+  body.print-grocery { color: #1f211d; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+  body.print-grocery .app-sidebar, body.print-grocery .app-header, body.print-grocery .mobile-tabbar, body.print-grocery .recipe-detail-layer, body.print-grocery .dialog-backdrop, body.print-grocery .sheet-backdrop, body.print-grocery .toast, body.print-grocery .shopping-summary, body.print-grocery .manual-item-form, body.print-grocery .grocery-list-tools, body.print-grocery .grocery-insight-panel, body.print-grocery .grocery-details { display: none !important; }
+  body.print-grocery .savor-shell, body.print-grocery .app-main, body.print-grocery .view-wrap { width: 100%; min-height: 0; margin: 0; padding: 0; }
+  body.print-grocery .grocery-print-heading { display: block; margin-bottom: 24px; padding-bottom: 14px; border-bottom: 2px solid #345143; }
+  body.print-grocery .grocery-print-heading p { margin: 0 0 4px; color: #345143; font-size: 10px; font-weight: 800; letter-spacing: 0.14em; text-transform: uppercase; }
+  body.print-grocery .grocery-print-heading h1 { margin: 0 0 5px; font-family: var(--serif); font-size: 30px; }
+  body.print-grocery .grocery-print-heading span { color: #5d625b; font-size: 10px; }
+  body.print-grocery .grocery-body { display: block; margin: 0; }
+  body.print-grocery .grocery-section { margin-bottom: 18px; }
+  body.print-grocery .grocery-section > header { position: static; min-height: 0; break-after: avoid; padding: 0 0 6px; border-bottom: 1px solid #aeb8ae; background: white; }
+  body.print-grocery .grocery-section > header h3 { font-size: 17px; }
+  body.print-grocery .grocery-section > header span { width: auto; min-width: 0; height: auto; background: transparent; color: #5d625b; font-size: 9px; }
+  body.print-grocery .grocery-rows { overflow: visible; border: 0; border-radius: 0; background: white; }
+  body.print-grocery .grocery-row { min-height: 34px; break-inside: avoid; grid-template-columns: 24px minmax(0, 1fr) auto; gap: 8px; padding: 5px 2px; border-bottom: 1px solid #dedfdc; background: white; opacity: 1; }
+  body.print-grocery .grocery-check { width: 16px; height: 16px; border: 1.5px solid #4f574f; border-radius: 3px; background: white; color: transparent; }
+  body.print-grocery .grocery-row.checked .grocery-check { background: white; color: #345143; }
+  body.print-grocery .grocery-row.checked .grocery-name { color: #62665f; }
+  body.print-grocery .grocery-name strong { overflow: visible; font-size: 12px; white-space: normal; }
+  body.print-grocery .grocery-name small { display: none; }
+  body.print-grocery .grocery-quantity { padding: 0; background: transparent; color: #1f211d; font-size: 10px; }
 }

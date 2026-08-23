@@ -1,6 +1,6 @@
 'use client';
 
-import { Check, ChevronDown, Info, Plus, RefreshCw, RotateCcw, ShoppingBasket, Trash2 } from 'lucide-react';
+import { Check, ChevronDown, Info, Plus, Printer, RefreshCw, RotateCcw, ShoppingBasket, Trash2 } from 'lucide-react';
 import { FormEvent, useMemo, useState } from 'react';
 import { formatRational } from '../../lib/domain';
 import type { GroceryCategory, GroceryItem, HouseholdPreferences } from '../../lib/types';
@@ -56,8 +56,20 @@ export function GroceryView({
     await Promise.all(items.filter((item) => item.checked).map(onDelete));
   }
 
+  function printList() {
+    const cleanup = () => document.body.classList.remove('print-grocery');
+    document.body.classList.add('print-grocery');
+    window.addEventListener('afterprint', cleanup, { once: true });
+    window.print();
+  }
+
   return (
     <section className="grocery-view">
+      <header className="grocery-print-heading">
+        <p>Savor</p>
+        <h1>Grocery list</h1>
+        <span>{remaining} item{remaining === 1 ? '' : 's'} left · Printed {new Intl.DateTimeFormat(undefined, { dateStyle: 'long' }).format(new Date())}</span>
+      </header>
       <div className="shopping-summary">
         <div className="shopping-summary-main">
           <span className="basket-seal"><ShoppingBasket size={24} /></span>
@@ -65,6 +77,7 @@ export function GroceryView({
         </div>
         <div className="grocery-summary-actions">
           <button className="button button-secondary" type="button" onClick={onGenerate}><RefreshCw size={16} />Refresh from meals</button>
+          <button className="button button-secondary" type="button" onClick={printList} disabled={!visibleItems.length}><Printer size={16} />Print list</button>
           {checked ? <button className="button button-ghost" type="button" onClick={clearChecked}><Trash2 size={16} />Clear checked</button> : null}
         </div>
         <div className="large-progress" aria-label={`${progress}% complete`}><span style={{ width: `${progress}%` }} /></div>

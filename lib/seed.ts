@@ -176,6 +176,7 @@ export const SEED_MEAL_PLAN: MealPlanEntry[] = [
 export const SEED_PREFERENCES: HouseholdPreferences = {
   pantryStaples: ['kosher salt', 'black pepper', 'olive oil'],
   excludePantryStaples: true,
+  skylightDeviceEmail: null,
   sectionOrder: [
     'Produce', 'Bakery', 'Meat & Seafood', 'Dairy & Eggs', 'Pasta, Rice & Grains',
     'Canned & Jarred', 'Pantry', 'Spices & Seasonings', 'Sauces & Condiments', 'Frozen', 'Other',

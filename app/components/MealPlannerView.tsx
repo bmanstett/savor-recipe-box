@@ -1,7 +1,8 @@
 'use client';
 
-import { CalendarPlus, ChevronLeft, ChevronRight, Clock3, Plus, ShoppingBasket, Trash2, X } from 'lucide-react';
+import { CalendarPlus, ChevronLeft, ChevronRight, Clock3, Mail, Plus, ShieldCheck, ShoppingBasket, Trash2, X } from 'lucide-react';
 import { useMemo, useState } from 'react';
+import { formatSkylightWeek, skylightMailto } from '../../lib/skylight';
 import type { MealPlanEntry, Recipe } from '../../lib/types';
 
 function key(value: Date): string {
@@ -22,10 +23,13 @@ function addDays(value: Date, days: number): Date {
 }
 
 export function MealPlannerView({
-  recipes, entries, onPlanRecipes, onRemoveMeal, onOpenRecipe, onGenerateGroceries,
+  recipes, entries, skylightEmail, onOpenSettings,
+  onPlanRecipes, onRemoveMeal, onOpenRecipe, onGenerateGroceries,
 }: {
   recipes: Recipe[];
   entries: MealPlanEntry[];
+  skylightEmail: string | null;
+  onOpenSettings: () => void;
   onPlanRecipes: (ids: string[], startDate?: string) => Promise<void>;
   onRemoveMeal: (entry: MealPlanEntry) => Promise<void>;
   onOpenRecipe: (recipe: Recipe) => void;
@@ -33,6 +37,7 @@ export function MealPlannerView({
 }) {
   const [weekOffset, setWeekOffset] = useState(0);
   const [addOpen, setAddOpen] = useState(false);
+  const [skylightOpen, setSkylightOpen] = useState(false);
   const [chosenDate, setChosenDate] = useState(key(new Date()));
   const [recipeId, setRecipeId] = useState(recipes[0]?.id ?? '');
 
@@ -45,6 +50,10 @@ export function MealPlannerView({
   const weekEntries = entries.filter((entry) => entry.date >= startKey && entry.date <= endKey);
   const plannedRecipeIds = [...new Set(weekEntries.map((entry) => entry.recipeId))];
   const weekLabel = `${new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' }).format(days[0])} – ${new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).format(days[6])}`;
+  const skylightDraft = useMemo(
+    () => formatSkylightWeek(entries, recipes, startKey, endKey),
+    [endKey, entries, recipes, startKey],
+  );
 
   function openAdd(date: string) {
     setChosenDate(date);
@@ -58,6 +67,12 @@ export function MealPlannerView({
     setAddOpen(false);
   }
 
+  function reviewSkylightDraft() {
+    if (!skylightEmail || !skylightDraft.mealCount) return;
+    window.location.href = skylightMailto(skylightEmail, skylightDraft);
+    setSkylightOpen(false);
+  }
+
   return (
     <section className="planner-view">
       <div className="planner-toolbar">
@@ -69,6 +84,7 @@ export function MealPlannerView({
         </div>
         <div className="planner-actions">
           <button className="button button-secondary" type="button" onClick={() => openAdd(key(new Date()))}><CalendarPlus size={17} />Plan a meal</button>
+          <button className="button button-secondary" type="button" disabled={!skylightDraft.mealCount} onClick={() => setSkylightOpen(true)}><Mail size={17} />Send week to Skylight</button>
           <button className="button button-primary" type="button" disabled={!plannedRecipeIds.length} onClick={() => onGenerateGroceries(weekEntries)}><ShoppingBasket size={17} />Make grocery list</button>
         </div>
       </div>
@@ -116,6 +132,41 @@ export function MealPlannerView({
             <label className="field-label">Recipe<select value={recipeId} onChange={(event) => setRecipeId(event.target.value)}>{recipes.map((recipe) => <option value={recipe.id} key={recipe.id}>{recipe.title}</option>)}</select></label>
             <label className="field-label">Date<input type="date" value={chosenDate} onChange={(event) => setChosenDate(event.target.value)} /></label>
             <button className="button button-primary full-button" type="button" disabled={!recipeId} onClick={addMeal}>Add dinner</button>
+          </section>
+        </div>
+      ) : null}
+
+      {skylightOpen ? (
+        <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setSkylightOpen(false); }}>
+          <section className="mini-dialog" role="dialog" aria-modal="true" aria-labelledby="skylight-dialog-title">
+            <button className="dialog-x icon-button" aria-label="Close" type="button" onClick={() => setSkylightOpen(false)}><X size={18} /></button>
+            <p className="eyebrow">Skylight Sidekick</p>
+            {skylightEmail ? (
+              <>
+                <h2 id="skylight-dialog-title">Review this week before sending</h2>
+                <p>Savor will open your email app with {skylightDraft.mealCount} {skylightDraft.mealCount === 1 ? 'meal' : 'meals'} from {weekLabel}. Nothing is sent until you review the draft and tap Send.</p>
+                <div className="github-connect-card">
+                  <div className="connected-repo"><span><Mail size={16} /></span><div><strong>{skylightEmail}</strong><small>Skylight device email</small></div></div>
+                  <div className="github-security-note"><ShieldCheck size={18} /><div><strong>Calendar Plus is required</strong><p>Sidekick can occasionally misread a menu. After sending, review Skylight's confirmation email and use Undo Import if anything looks wrong.</p></div></div>
+                  <div className="github-connect-actions">
+                    <button className="button button-ghost" type="button" onClick={() => setSkylightOpen(false)}>Cancel</button>
+                    <button className="button button-primary" type="button" onClick={reviewSkylightDraft}><Mail size={16} />Review email draft</button>
+                  </div>
+                </div>
+              </>
+            ) : (
+              <>
+                <h2 id="skylight-dialog-title">Connect your Skylight first</h2>
+                <p>Add your Calendar's <strong>@ourskylight.com</strong> device email in household settings. Savor will use it only to address a draft in your own email app.</p>
+                <div className="github-connect-card">
+                  <div className="github-security-note"><ShieldCheck size={18} /><div><strong>Supported Sidekick import</strong><p>Meal imports require Calendar Plus. Savor never signs into Skylight and never sends mail automatically.</p></div></div>
+                  <div className="github-connect-actions">
+                    <button className="button button-ghost" type="button" onClick={() => setSkylightOpen(false)}>Cancel</button>
+                    <button className="button button-primary" type="button" onClick={() => { setSkylightOpen(false); onOpenSettings(); }}>Open household settings</button>
+                  </div>
+                </div>
+              </>
+            )}
           </section>
         </div>
       ) : null}

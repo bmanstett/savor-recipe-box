@@ -2,12 +2,13 @@
 
 import {
   ChevronDown, ChevronUp, Cloud, Download, ExternalLink, Github, HardDrive,
-  KeyRound, RefreshCw, ShieldCheck, Smartphone, Unplug, Upload, X,
+  KeyRound, Mail, RefreshCw, ShieldCheck, Smartphone, Unplug, Upload, X,
 } from 'lucide-react';
 import { type ChangeEvent, useRef, useState } from 'react';
 import type { StoredGitHubConnection } from '../../lib/client-cache';
 import type { GitHubConnectInput, SyncPresentation } from '../../lib/sync-types';
 import type { GroceryCategory, HouseholdPreferences } from '../../lib/types';
+import { isValidSkylightDeviceEmail } from '../../lib/skylight';
 
 export function SettingsSheet({
   preferences, connection, sync, installAvailable,
@@ -29,6 +30,7 @@ export function SettingsSheet({
   const [pantryText, setPantryText] = useState(preferences.pantryStaples.join(', '));
   const [exclude, setExclude] = useState(preferences.excludePantryStaples);
   const [order, setOrder] = useState(preferences.sectionOrder);
+  const [skylightEmail, setSkylightEmail] = useState(preferences.skylightDeviceEmail ?? '');
   const [owner, setOwner] = useState(connection?.owner ?? 'bmanstett');
   const [repo, setRepo] = useState(connection?.repo ?? 'savor-data');
   const [token, setToken] = useState('');
@@ -53,10 +55,15 @@ export function SettingsSheet({
     setSaving(true);
     setError('');
     try {
+      const cleanSkylightEmail = skylightEmail.trim().toLowerCase();
+      if (cleanSkylightEmail && !isValidSkylightDeviceEmail(cleanSkylightEmail)) {
+        throw new Error('Enter a Skylight device email ending in @ourskylight.com, or leave it blank.');
+      }
       await onSave({
         pantryStaples: pantryText.split(',').map((item) => item.trim().toLowerCase()).filter(Boolean),
         excludePantryStaples: exclude,
         sectionOrder: order,
+        skylightDeviceEmail: cleanSkylightEmail || null,
       });
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Settings could not be saved.');
@@ -118,6 +125,12 @@ export function SettingsSheet({
                 <p className="github-helper">Disconnecting removes the session token but does not revoke it. Revoke lost-device tokens in GitHub settings.</p>
               </div>
             )}
+          </section>
+
+          <section className="settings-section">
+            <div className="settings-section-heading"><span><Mail size={19} /></span><div><h2>Skylight Sidekick</h2><p>Send a planned week to your Calendar's native Meal Planner.</p></div></div>
+            <label className="field-label">Skylight device email<input type="email" value={skylightEmail} onChange={(event) => setSkylightEmail(event.target.value)} autoCapitalize="none" autoComplete="off" spellCheck={false} placeholder="your-calendar@ourskylight.com" /><small>Optional. Find this address in the Skylight app. It stays with your private household preferences.</small></label>
+            <div className="github-security-note"><ShieldCheck size={18} /><div><strong>Drafts only</strong><p>Savor opens your email app with a prepared menu. Nothing is sent automatically, and Sidekick meal imports require Calendar Plus.</p></div></div>
           </section>
 
           <section className="settings-section">

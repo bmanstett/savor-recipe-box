@@ -124,6 +124,7 @@ export interface HouseholdPreferences {
   pantryStaples: string[];
   sectionOrder: GroceryCategory[];
   excludePantryStaples: boolean;
+  skylightDeviceEmail?: string | null;
 }
 
 export interface BootstrapData {

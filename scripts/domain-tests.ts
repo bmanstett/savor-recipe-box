@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { aggregateRecipes, createBlankDraft, draftToRecipe, formatRational, parseIngredientLine } from '../lib/domain.ts';
+import { formatSkylightWeek, isValidSkylightDeviceEmail, skylightMailto } from '../lib/skylight.ts';
 import type { Recipe } from '../lib/types.ts';
 
 function recipe(id: string, title: string, lines: string[], servings = 4): Recipe {
@@ -110,4 +111,24 @@ function itemFor(items: ReturnType<typeof aggregateRecipes>, normalized: string,
   assert.equal(milk.recipeContributions.length, 2);
 }
 
-console.log('Domain tests passed: 9 scenarios');
+{
+  assert(isValidSkylightDeviceEmail('family-kitchen@ourskylight.com'));
+  assert(!isValidSkylightDeviceEmail('family-kitchen@example.com'));
+}
+
+{
+  const plannedRecipe = recipe('skylight', 'Taco night', ['8 tortillas'], 4);
+  plannedRecipe.sourceURL = 'https://example.com/tacos';
+  const draft = formatSkylightWeek([{
+    id: 'meal_skylight', date: '2026-08-25', mealType: 'dinner', recipeId: plannedRecipe.id,
+    servings: 6, revision: 1, dateModified: '2026-08-23T12:00:00.000Z',
+  }], [plannedRecipe], '2026-08-23', '2026-08-29');
+  assert.equal(draft.mealCount, 1);
+  assert.match(draft.body, /Tuesday, August 25, 2026/);
+  assert.match(draft.body, /Dinner: Taco night/);
+  assert.match(draft.body, /Servings: 6/);
+  assert.match(draft.body, /Recipe URL: https:\/\/example\.com\/tacos/);
+  assert.match(skylightMailto('FAMILY@ourskylight.com', draft), /^mailto:family@ourskylight\.com\?/);
+}
+
+console.log('Domain tests passed: 11 scenarios');

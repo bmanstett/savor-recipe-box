@@ -398,7 +398,7 @@ export function SavorApp({
             <RecipesView recipes={data.recipes} query={query} onQueryChange={setQuery} filter={recipeFilter} onFilterChange={setRecipeFilter} onOpenRecipe={setSelectedRecipe} onToggleFavorite={toggleFavorite} onAddRecipe={() => setAddOpen(true)} onPlanRecipes={planRecipes} onGenerateGroceries={generateGroceries} />
           ) : null}
           {view === 'plan' ? (
-            <MealPlannerView recipes={data.recipes} entries={data.mealPlan} onPlanRecipes={planRecipes} onRemoveMeal={removeMeal} onOpenRecipe={setSelectedRecipe} onGenerateGroceries={(entries) => generateGroceries(undefined, entries)} />
+            <MealPlannerView recipes={data.recipes} entries={data.mealPlan} skylightEmail={data.preferences.skylightDeviceEmail ?? null} onOpenSettings={() => setSettingsOpen(true)} onPlanRecipes={planRecipes} onRemoveMeal={removeMeal} onOpenRecipe={setSelectedRecipe} onGenerateGroceries={(entries) => generateGroceries(undefined, entries)} />
           ) : null}
           {view === 'grocery' ? (
             <GroceryView items={data.groceryItems} preferences={data.preferences} onToggle={toggleGroceryItem} onAdd={addGroceryItem} onDelete={deleteGrocery} onChangeCategory={updateGroceryCategory} onGenerate={() => generateGroceries()} />
