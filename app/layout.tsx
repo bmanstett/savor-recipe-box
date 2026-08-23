@@ -3,8 +3,10 @@ import './globals.css';
 
 const title = 'Savor — Your household cookbook';
 const description = 'Save recipes from anywhere, plan the week, and shop from one beautifully organized list.';
+const siteUrl = new URL('https://savor-recipe-box.bret-anstett.chatgpt.site');
 
 export const metadata: Metadata = {
+  metadataBase: siteUrl,
   title: { default: title, template: '%s — Savor' },
   description,
   applicationName: 'Savor',
@@ -18,8 +20,11 @@ export const metadata: Metadata = {
     ],
     apple: [{ url: '/icons/icon-192.png', type: 'image/png', sizes: '192x192' }],
   },
-  openGraph: { title, description, type: 'website', siteName: 'Savor' },
-  twitter: { card: 'summary_large_image', title, description },
+  openGraph: {
+    title, description, type: 'website', siteName: 'Savor', url: '/',
+    images: [{ url: '/og.png', width: 1200, height: 630, alt: 'Savor — Your recipes. One place.' }],
+  },
+  twitter: { card: 'summary_large_image', title, description, images: ['/og.png'] },
 };
 
 export const viewport: Viewport = {
