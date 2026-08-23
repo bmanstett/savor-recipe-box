@@ -1,11 +1,15 @@
-const CACHE_NAME = 'savor-static-v3';
+const CACHE_NAME = 'savor-static-v4';
 const BASE = new URL(self.registration.scope).pathname.replace(/\/$/, '');
 const scoped = (path = '') => `${BASE}/${path}`;
+const BUILD_ASSETS = [
+  /* __SAVOR_BUILD_ASSETS__ */
+];
 const SHELL_ASSETS = [
   scoped(),
   scoped('manifest.webmanifest'),
   scoped('icons/icon-192.png'),
   scoped('icons/icon-512.png'),
+  scoped('icons/icon-maskable-512.png'),
   scoped('recipes/lemon-chicken.jpg'),
   scoped('recipes/tuscan-pasta.jpg'),
   scoped('recipes/salmon-bowl.jpg'),
@@ -13,6 +17,7 @@ const SHELL_ASSETS = [
   scoped('recipes/tomato-soup.jpg'),
   scoped('recipes/bean-salad.jpg'),
   scoped('recipes/banana-bread.jpg'),
+  ...BUILD_ASSETS.map(scoped),
 ];
 
 self.addEventListener('install', (event) => {

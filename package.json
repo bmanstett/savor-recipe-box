@@ -8,10 +8,11 @@
   },
   "scripts": {
     "dev": "vite",
-    "build": "tsc --noEmit && vite build",
+    "build": "tsc --noEmit && vite build && node scripts/inject-sw-precache.mjs && node scripts/verify-pwa-build.mjs",
     "preview": "vite preview",
     "lint": "tsc --noEmit",
-    "test:domain": "node --experimental-strip-types scripts/domain-tests.ts"
+    "test:domain": "node --experimental-strip-types scripts/domain-tests.ts",
+    "test:pwa": "node scripts/verify-pwa-build.mjs"
   },
   "dependencies": {
     "lucide-react": "0.468.0",
