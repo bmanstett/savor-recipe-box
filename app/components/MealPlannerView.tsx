@@ -1,11 +1,12 @@
 'use client';
 
-import { CalendarPlus, ChevronLeft, ChevronRight, Clock3, Mail, Plus, ShieldCheck, ShoppingBasket, Sparkles, Trash2, X } from 'lucide-react';
+import { CalendarPlus, ChevronLeft, ChevronRight, ClipboardList, Clock3, Mail, Plus, ShieldCheck, ShoppingBasket, Sparkles, Trash2, X } from 'lucide-react';
 import { useMemo, useState } from 'react';
-import { optimizeMealWeek, type RecommendedMeal } from '../../lib/meal-week-optimizer';
+import { buildSundayPrepRecommendation, optimizeMealWeek, type RecommendedMeal } from '../../lib/meal-week-optimizer';
 import { formatSkylightWeek, skylightMailto } from '../../lib/skylight';
 import { MEAL_TYPES, type GroceryItem, type MealPlanEntry, type MealType, type Recipe } from '../../lib/types';
 import { OptimizeWeekDialog } from './OptimizeWeekDialog';
+import { SundayPrepDialog } from './SundayPrepDialog';
 
 function key(value: Date): string {
   return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`;
@@ -43,6 +44,7 @@ export function MealPlannerView({
   const [addOpen, setAddOpen] = useState(false);
   const [skylightOpen, setSkylightOpen] = useState(false);
   const [optimizeOpen, setOptimizeOpen] = useState(false);
+  const [prepOpen, setPrepOpen] = useState(false);
   const [chosenDate, setChosenDate] = useState(key(new Date()));
   const [recipeId, setRecipeId] = useState(recipes[0]?.id ?? '');
   const [mealType, setMealType] = useState<MealType>('dinner');
@@ -62,6 +64,10 @@ export function MealPlannerView({
   );
   const optimization = useMemo(
     () => optimizeMealWeek({ recipes, mealPlan: entries, groceryItems, week: { startDate: startKey, endDate: endKey } }),
+    [endKey, entries, groceryItems, recipes, startKey],
+  );
+  const prepReference = useMemo(
+    () => buildSundayPrepRecommendation({ recipes, mealPlan: entries, groceryItems, week: { startDate: startKey, endDate: endKey } }),
     [endKey, entries, groceryItems, recipes, startKey],
   );
 
@@ -96,6 +102,7 @@ export function MealPlannerView({
         <div className="planner-actions">
           <button className="button button-secondary" type="button" onClick={() => openAdd(key(new Date()))}><CalendarPlus size={17} />Plan a meal</button>
           <button className="button button-secondary" type="button" disabled={!weekEntries.length} onClick={() => setOptimizeOpen(true)}><Sparkles size={17} />Optimize week</button>
+          <button className="button button-secondary" type="button" disabled={!weekEntries.length} onClick={() => setPrepOpen(true)}><ClipboardList size={17} />Prep</button>
           <button className="button button-secondary" type="button" disabled={!skylightDraft.mealCount} onClick={() => setSkylightOpen(true)}><Mail size={17} />Send week to Skylight</button>
           <button className="button button-primary" type="button" disabled={!plannedRecipeIds.length} onClick={() => onGenerateGroceries(weekEntries)}><ShoppingBasket size={17} />Make grocery list</button>
         </div>
@@ -187,6 +194,7 @@ export function MealPlannerView({
       ) : null}
 
       {optimizeOpen ? <OptimizeWeekDialog recommendation={optimization} onClose={() => setOptimizeOpen(false)} onApply={onApplyOptimization} /> : null}
+      {prepOpen ? <SundayPrepDialog recommendation={prepReference} recipes={recipes} onClose={() => setPrepOpen(false)} onOpenRecipe={(recipe) => { setPrepOpen(false); onOpenRecipe(recipe); }} /> : null}
     </section>
   );
 }

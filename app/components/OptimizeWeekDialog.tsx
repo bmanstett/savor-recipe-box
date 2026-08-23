@@ -1,7 +1,7 @@
 'use client';
 
 import {
-  ArrowRight, CalendarClock, CheckCircle2, ClipboardList, ShieldAlert, Sparkles, Snowflake, X,
+  ArrowRight, CalendarClock, CheckCircle2, ShieldAlert, Sparkles, X,
 } from 'lucide-react';
 import { useState } from 'react';
 import type { MealWeekRecommendation, RecommendedMeal } from '../../lib/meal-week-optimizer';
@@ -55,13 +55,13 @@ export function OptimizeWeekDialog({
 
   return (
     <div className="dialog-backdrop optimize-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-      <section className="optimize-dialog" role="dialog" aria-modal="true" aria-labelledby="optimize-dialog-title">
+      <section className="optimize-dialog schedule-only-dialog" role="dialog" aria-modal="true" aria-labelledby="optimize-dialog-title">
         <header className="optimize-dialog-header">
           <div className="optimize-title-mark"><Sparkles size={21} /></div>
           <div>
             <p className="eyebrow">Freshness-aware week</p>
             <h2 id="optimize-dialog-title">A smarter order for your meals</h2>
-            <p>Savor keeps every meal in its original meal type, puts shorter-lived ingredients earlier, and builds a practical Sunday prep list.</p>
+            <p>See what to eat when based on grocery purchase timing and conservative freshness windows. Nothing moves until you apply the schedule.</p>
           </div>
           <button className="dialog-x icon-button" aria-label="Close optimizer" type="button" onClick={onClose}><X size={18} /></button>
         </header>
@@ -79,68 +79,36 @@ export function OptimizeWeekDialog({
             <p className="optimizer-assumption">{recommendation.dataQuality.reasons.join(' ')}</p>
           ) : null}
 
-          <div className="optimizer-grid">
-            <section className="optimizer-panel schedule-panel" aria-labelledby="optimized-schedule-title">
-              <div className="optimizer-panel-heading">
-                <span><CalendarClock size={18} /></span>
-                <div><p className="eyebrow">Recommended schedule</p><h3 id="optimized-schedule-title">What to eat when</h3></div>
-              </div>
-              <div className="optimized-meal-list">
-                {recommendation.schedule.map((meal) => (
-                  <article className="optimized-meal" key={meal.sourceEntryId}>
-                    <div className="optimized-date">
-                      <small>{new Intl.DateTimeFormat('en-US', { weekday: 'short' }).format(parseDate(meal.date))}</small>
-                      <strong>{parseDate(meal.date).getDate()}</strong>
-                    </div>
-                    <div className="optimized-meal-copy">
-                      <span className="optimized-meal-meta"><b>{titleCase(meal.mealType)}</b><em>{titleCase(meal.freshness.category)}</em></span>
-                      <h4>{meal.recipeTitle}</h4>
-                      <p>{meal.reasons[0] ?? 'Placed here to balance freshness and your existing plan.'}</p>
-                      {meal.moved ? (
-                        <span className="meal-move"><span>{formatDate(meal.originalDate)}</span><ArrowRight size={12} /><strong>{formatDate(meal.date)}</strong></span>
-                      ) : <span className="meal-keep"><CheckCircle2 size={12} />Keep on {formatDate(meal.date)}</span>}
-                    </div>
-                  </article>
-                ))}
-                {recommendation.unresolvedEntries.map((entry) => (
-                  <article className="optimized-meal unresolved-meal" key={entry.sourceEntryId}>
-                    <div className="optimized-date"><ShieldAlert size={17} /></div>
-                    <div className="optimized-meal-copy"><h4>Plan entry needs attention</h4><p>{entry.reason === 'missing-recipe' ? `A planned entry on ${formatDate(entry.originalDate)} references a recipe that is no longer available.` : `A planned entry has an invalid date (${entry.originalDate || 'blank'}) and could not be optimized.`}</p></div>
-                  </article>
-                ))}
-              </div>
-            </section>
-
-            <section className="optimizer-panel prep-panel" aria-labelledby="sunday-prep-title">
-              <div className="optimizer-panel-heading">
-                <span><ClipboardList size={18} /></span>
-                <div><p className="eyebrow">Sunday · {formatDate(recommendation.sundayPrep.date, false)}</p><h3 id="sunday-prep-title">Prep once, coast all week</h3></div>
-              </div>
-              {recommendation.sundayPrep.tasks.length ? (
-                <ol className="prep-task-list">
-                  {recommendation.sundayPrep.tasks.map((task) => (
-                    <li key={task.id}>
-                      <span>{task.kind === 'portion-lunch' ? <Snowflake size={15} /> : task.kind === 'marinate' ? <CalendarClock size={15} /> : <CheckCircle2 size={15} />}</span>
-                      <div>
-                        <strong>{task.instruction}</strong>
-                        <small>{task.recipeTitle} · for {task.mealDates.map((date) => formatDate(date)).join(', ')}</small>
-                        {task.reasons[0] ? <p>{task.reasons[0]}</p> : null}
-                      </div>
-                    </li>
-                  ))}
-                </ol>
-              ) : <p className="optimizer-empty">No safe, useful make-ahead tasks were identified for this week.</p>}
-
-              {recommendation.sundayPrep.warnings.length ? (
-                <div className="prep-warning-list">
-                  <h4><ShieldAlert size={15} />Keep these fresh</h4>
-                  {recommendation.sundayPrep.warnings.map((warning) => (
-                    <article key={warning.id}><strong>{warning.recipeTitle}</strong><p>{warning.message} {warning.recommendation}</p></article>
-                  ))}
-                </div>
-              ) : null}
-            </section>
-          </div>
+          <section className="optimizer-panel schedule-panel schedule-panel-only" aria-labelledby="optimized-schedule-title">
+            <div className="optimizer-panel-heading">
+              <span><CalendarClock size={18} /></span>
+              <div><p className="eyebrow">Recommended schedule</p><h3 id="optimized-schedule-title">What to eat when</h3></div>
+            </div>
+            <div className="optimized-meal-list">
+              {recommendation.schedule.map((meal) => (
+                <article className="optimized-meal" key={meal.sourceEntryId}>
+                  <div className="optimized-date">
+                    <small>{new Intl.DateTimeFormat('en-US', { weekday: 'short' }).format(parseDate(meal.date))}</small>
+                    <strong>{parseDate(meal.date).getDate()}</strong>
+                  </div>
+                  <div className="optimized-meal-copy">
+                    <span className="optimized-meal-meta"><b>{titleCase(meal.mealType)}</b><em>{titleCase(meal.freshness.category)}</em></span>
+                    <h4>{meal.recipeTitle}</h4>
+                    <p>{meal.reasons[0] ?? 'Placed here to balance freshness and your existing plan.'}</p>
+                    {meal.moved ? (
+                      <span className="meal-move"><span>{formatDate(meal.originalDate)}</span><ArrowRight size={12} /><strong>{formatDate(meal.date)}</strong></span>
+                    ) : <span className="meal-keep"><CheckCircle2 size={12} />Keep on {formatDate(meal.date)}</span>}
+                  </div>
+                </article>
+              ))}
+              {recommendation.unresolvedEntries.map((entry) => (
+                <article className="optimized-meal unresolved-meal" key={entry.sourceEntryId}>
+                  <div className="optimized-date"><ShieldAlert size={17} /></div>
+                  <div className="optimized-meal-copy"><h4>Plan entry needs attention</h4><p>{entry.reason === 'missing-recipe' ? `A planned entry on ${formatDate(entry.originalDate)} references a recipe that is no longer available.` : `A planned entry has an invalid date (${entry.originalDate || 'blank'}) and could not be optimized.`}</p></div>
+                </article>
+              ))}
+            </div>
+          </section>
 
           <aside className="optimizer-safety-note">
             <ShieldAlert size={17} />

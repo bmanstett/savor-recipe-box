@@ -492,6 +492,8 @@ function buildSundayPrep(
     const earliestUseOffset = Math.min(...useDays.map((day) => day - sundayPrepDay));
     const latestUseOffset = Math.max(...useDays.map((day) => day - sundayPrepDay));
     const latestMealOffset = Math.max(...meals.map((meal) => parseDateKey(meal.date) - sundayPrepDay));
+    const lunchMeals = meals.filter((meal) => meal.mealType === 'lunch');
+    const lateLunches = lunchMeals.filter((meal) => parseDateKey(meal.date) - sundayPrepDay > 3);
     const instructions = instructionText(recipe);
     const seafood = recipe.ingredients
       .filter((ingredient) => classifyIngredient(ingredient).category === 'seafood')
@@ -512,7 +514,9 @@ function buildSundayPrep(
         'seafood', recipe, mealDates,
         `${recipe.title} includes ${seafood.join(', ')}, which should not sit raw or marinating from Sunday.`,
         earliestUseOffset === 0
-          ? 'Keep it cold and cook it during Sunday prep; freeze later lunch portions promptly.'
+          ? lateLunches.length
+            ? 'Keep it cold, cook it during Sunday prep, and freeze later lunch portions promptly.'
+            : 'Keep it cold and cook it during Sunday prep.'
           : 'Keep it frozen, thaw it in the refrigerator close to the meal, and prepare it day-of.',
       );
     }
@@ -558,7 +562,13 @@ function buildSundayPrep(
     if (sturdyProduce.length) {
       addTask(
         'chop-sturdy-produce', recipe, mealDates,
-        `Wash and chop ${sturdyProduce.join(', ')} for ${recipe.title}; refrigerate it in labeled airtight containers and leave later-week portions whole.`,
+        lunchMeals.length
+          ? `Wash and chop ${sturdyProduce.join(', ')} for Sunday meal prep of ${recipe.title}; refrigerate or freeze the finished portions as directed below.`
+          : earliestUseOffset > 3
+            ? `Wash and dry ${sturdyProduce.join(', ')} for ${recipe.title}; keep it whole and chop it closer to ${mealDates.join(', ')}.`
+            : latestMealOffset > 3
+              ? `Wash and chop the ${sturdyProduce.join(', ')} needed through Wednesday for ${recipe.title}; keep later-week portions whole until closer to serving.`
+              : `Wash and chop ${sturdyProduce.join(', ')} for ${recipe.title}; refrigerate it in a labeled airtight container.`,
         ['These sturdy vegetables tolerate limited advance chopping better than delicate greens or potatoes.'],
         0.78,
       );
@@ -578,7 +588,9 @@ function buildSundayPrep(
         'make-sauce', recipe, mealDates,
         hasPerishableFinish
           ? `Mix the shelf-stable sauce base for ${recipe.title}; refrigerate it and add dairy, avocado, or fresh herbs near serving.`
-          : `Make the sauce or dressing for ${recipe.title} and refrigerate it in a labeled airtight container.`,
+          : directSauceInstruction
+            ? `Make the sauce or dressing for ${recipe.title} and refrigerate it in a labeled airtight container.`
+            : `Measure and combine the shelf-stable seasonings and condiments for ${recipe.title}; cover and refrigerate the mixture.`,
         [directSauceInstruction ? 'A recipe instruction explicitly describes a sauce or dressing.' : 'The recipe combines multiple seasonings or condiments.'],
         directSauceInstruction ? 0.9 : 0.68,
       );
@@ -599,9 +611,7 @@ function buildSundayPrep(
       );
     }
 
-    const lunchMeals = meals.filter((meal) => meal.mealType === 'lunch');
     if (lunchMeals.length) {
-      const lateLunches = lunchMeals.filter((meal) => parseDateKey(meal.date) - sundayPrepDay > 3);
       addTask(
         'portion-lunch', recipe, lunchMeals.map((meal) => meal.date).sort(compareText),
         lateLunches.length
@@ -664,7 +674,10 @@ function buildDataQuality(
   };
 }
 
-export function optimizeMealWeek(input: MealWeekOptimizerInput): MealWeekRecommendation {
+function buildMealWeekRecommendation(
+  input: MealWeekOptimizerInput,
+  reorderMeals: boolean,
+): MealWeekRecommendation {
   const startDay = parseDateKey(input.week.startDate);
   const endDay = parseDateKey(input.week.endDate);
   if (endDay < startDay) throw new RangeError('Week end date must not be before its start date.');
@@ -697,7 +710,7 @@ export function optimizeMealWeek(input: MealWeekOptimizerInput): MealWeekRecomme
     const slots = [...group].sort((first, second) => (
       compareText(first.source.date, second.source.date) || compareText(first.source.id, second.source.id)
     ));
-    const ordered = [...group].sort(compareCandidates);
+    const ordered = reorderMeals ? [...group].sort(compareCandidates) : slots;
     for (let index = 0; index < slots.length; index += 1) {
       schedule.push(buildRecommendedMeal(slots[index].source, ordered[index], sundayPrepDay));
     }
@@ -724,4 +737,14 @@ export function optimizeMealWeek(input: MealWeekOptimizerInput): MealWeekRecomme
     unresolvedEntries,
     dataQuality,
   };
+}
+
+/** Builds Sunday prep guidance against the dates currently saved in the meal plan. */
+export function buildSundayPrepRecommendation(input: MealWeekOptimizerInput): MealWeekRecommendation {
+  return buildMealWeekRecommendation(input, false);
+}
+
+/** Recommends a freshness-aware ordering for the dates already available in each meal type. */
+export function optimizeMealWeek(input: MealWeekOptimizerInput): MealWeekRecommendation {
+  return buildMealWeekRecommendation(input, true);
 }

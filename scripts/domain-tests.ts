@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { aggregateRecipes, createBlankDraft, draftToRecipe, formatRational, parseIngredientLine } from '../lib/domain.ts';
-import { optimizeMealWeek } from '../lib/meal-week-optimizer.ts';
+import { buildSundayPrepRecommendation, optimizeMealWeek } from '../lib/meal-week-optimizer.ts';
 import { formatSkylightWeek, isValidSkylightDeviceEmail, skylightMailto } from '../lib/skylight.ts';
 import { parseRecipeSourceUrl } from '../lib/recipe-source.ts';
 import type { Recipe } from '../lib/types.ts';
@@ -304,4 +304,27 @@ function itemFor(items: ReturnType<typeof aggregateRecipes>, normalized: string,
   assert(recommendation.schedule.every((meal) => !meal.reasons.some((reason) => reason.startsWith('Moved from'))));
 }
 
-console.log('Domain tests passed: 20 scenarios');
+{
+  const seafood = recipe('saved-prep-seafood', 'Saved-plan seafood', ['1 lb salmon']);
+  const pantry = recipe('saved-prep-pantry', 'Saved-plan pantry', ['1 can chickpeas']);
+  const input = {
+    recipes: [seafood, pantry],
+    mealPlan: [
+      { id: 'saved-pantry-slot', date: '2026-08-23', mealType: 'dinner' as const, recipeId: pantry.id, servings: 4, revision: 1, dateModified: '2026-08-20T12:00:00.000Z' },
+      { id: 'saved-seafood-slot', date: '2026-08-27', mealType: 'dinner' as const, recipeId: seafood.id, servings: 4, revision: 1, dateModified: '2026-08-20T12:00:00.000Z' },
+    ],
+    groceryItems: [],
+    week: { startDate: '2026-08-23', endDate: '2026-08-29' },
+  };
+  const optimized = optimizeMealWeek(input);
+  const prepReference = buildSundayPrepRecommendation(input);
+  assert.equal(optimized.schedule[0].recipeId, seafood.id, 'optimizer may propose moving seafood earlier');
+  assert.deepEqual(prepReference.schedule.map((meal) => [meal.recipeId, meal.date]), [
+    [pantry.id, '2026-08-23'], [seafood.id, '2026-08-27'],
+  ], 'prep reference must use the saved dates until optimization is applied');
+  assert(prepReference.schedule.every((meal) => !meal.moved));
+  const seafoodWarning = prepReference.sundayPrep.warnings.find((warning) => warning.kind === 'seafood');
+  assert.match(seafoodWarning?.recommendation ?? '', /keep it frozen/i);
+}
+
+console.log('Domain tests passed: 21 scenarios');
