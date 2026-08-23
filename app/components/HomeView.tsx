@@ -1,7 +1,7 @@
 'use client';
 
 import { ArrowRight, CalendarDays, Clock3, Play, ShoppingBasket, Sparkles, Users } from 'lucide-react';
-import type { BootstrapData, Recipe } from '../../lib/types';
+import { MEAL_TYPES, type BootstrapData, type Recipe } from '../../lib/types';
 
 type View = 'home' | 'recipes' | 'plan' | 'grocery';
 
@@ -34,7 +34,7 @@ export function HomeView({
         <div className="empty-seal"><Sparkles size={24} /></div>
         <p className="eyebrow">Your private cookbook</p>
         <h2>Your recipes. One place.</h2>
-        <p>Save recipes from anywhere, plan the week, and turn dinner into one organized grocery list.</p>
+        <p>Save recipes from anywhere, plan the week, and turn every meal into one organized grocery list.</p>
         <div className="empty-actions">
           <button className="button button-primary" type="button" onClick={onAddRecipe}>Import a recipe</button>
           <button className="button button-secondary" type="button" onClick={onAddRecipe}>Scan a recipe</button>
@@ -45,11 +45,14 @@ export function HomeView({
   }
 
   const today = localDateKey(new Date());
-  const planned = [...data.mealPlan].sort((a, b) => a.date.localeCompare(b.date));
-  const tonightEntry = planned.find((entry) => entry.date === today && entry.mealType === 'dinner')
-    ?? planned.find((entry) => entry.date >= today);
-  const tonightRecipe = data.recipes.find((recipe) => recipe.id === tonightEntry?.recipeId) ?? data.recipes[0];
-  const upcoming = planned.filter((entry) => entry.id !== tonightEntry?.id && entry.date >= today).slice(0, 4);
+  const planned = [...data.mealPlan].sort((a, b) => a.date.localeCompare(b.date)
+    || MEAL_TYPES.indexOf(a.mealType) - MEAL_TYPES.indexOf(b.mealType));
+  const nextEntry = planned.find((entry) => entry.date >= today && data.recipes.some((recipe) => recipe.id === entry.recipeId));
+  const nextRecipe = data.recipes.find((recipe) => recipe.id === nextEntry?.recipeId) ?? data.recipes[0];
+  const nextMealLabel = nextEntry
+    ? `Planned for ${nextEntry.mealType.charAt(0).toUpperCase() + nextEntry.mealType.slice(1)}`
+    : 'From your cookbook';
+  const upcoming = planned.filter((entry) => entry.id !== nextEntry?.id && entry.date >= today).slice(0, 4);
   const recent = [...data.recipes].sort((a, b) => b.dateAdded.localeCompare(a.dateAdded)).slice(0, 4);
   const remaining = data.groceryItems.filter((item) => !item.checked).length;
   const checked = data.groceryItems.filter((item) => item.checked).length;
@@ -57,25 +60,25 @@ export function HomeView({
 
   return (
     <div className="home-layout">
-      <section className="home-primary" aria-labelledby="tonight-title">
+      <section className="home-primary" aria-labelledby="next-meal-title">
         <div className="section-title-row">
-          <div><p className="eyebrow">Tonight</p><h2 id="tonight-title">Dinner is decided.</h2></div>
-          <button className="text-button" type="button" onClick={() => onNavigate('plan')}>Change meal <ArrowRight size={15} /></button>
+          <div><p className="eyebrow">Next up</p><h2 id="next-meal-title">{nextEntry ? 'Your next meal is decided.' : 'A favorite, ready when you are.'}</h2></div>
+          <button className="text-button" type="button" onClick={() => onNavigate('plan')}>View plan <ArrowRight size={15} /></button>
         </div>
         <article className="tonight-hero">
-          {tonightRecipe.heroImage ? <img alt={`${tonightRecipe.title}, planned for dinner`} src={tonightRecipe.heroImage} /> : <div className="image-fallback" />}
+          {nextRecipe.heroImage ? <img alt={nextEntry ? `${nextRecipe.title}, planned for ${nextEntry.mealType}` : nextRecipe.title} src={nextRecipe.heroImage} /> : <div className="image-fallback" />}
           <div className="tonight-shade" />
           <div className="tonight-copy">
-            <span className="over-image-label">Planned for dinner</span>
-            <h3>{tonightRecipe.title}</h3>
-            <p>{tonightRecipe.description}</p>
+            <span className="over-image-label">{nextMealLabel}</span>
+            <h3>{nextRecipe.title}</h3>
+            <p>{nextRecipe.description}</p>
             <div className="over-image-meta">
-              <span><Clock3 size={14} />{tonightRecipe.totalTime ?? tonightRecipe.cookTime ?? '—'} min</span>
-              <span><Users size={14} />Serves {tonightEntry?.servings ?? tonightRecipe.servings ?? '—'}</span>
+              <span><Clock3 size={14} />{nextRecipe.totalTime ?? nextRecipe.cookTime ?? '—'} min</span>
+              <span><Users size={14} />Serves {nextEntry?.servings ?? nextRecipe.servings ?? '—'}</span>
             </div>
             <div className="hero-button-row">
-              <button className="button light-button" type="button" onClick={() => onCook(tonightRecipe)}><Play size={16} fill="currentColor" />Start cooking</button>
-              <button className="button glass-button" type="button" onClick={() => onOpenRecipe(tonightRecipe)}>View recipe</button>
+              <button className="button light-button" type="button" onClick={() => onCook(nextRecipe)}><Play size={16} fill="currentColor" />Start cooking</button>
+              <button className="button glass-button" type="button" onClick={() => onOpenRecipe(nextRecipe)}>View recipe</button>
             </div>
           </div>
         </article>
@@ -93,7 +96,7 @@ export function HomeView({
                 <button className="upcoming-row" type="button" key={entry.id} onClick={() => onOpenRecipe(recipe)}>
                   <span className="upcoming-date"><strong>{label.day}</strong><small>{label.date}</small></span>
                   {recipe.heroImage ? <img alt="" src={recipe.heroImage} /> : null}
-                  <span className="upcoming-copy"><strong>{recipe.title}</strong><small>{recipe.totalTime ?? recipe.cookTime ?? '—'} min · {entry.mealType}</small></span>
+                  <span className="upcoming-copy"><strong>{recipe.title}</strong><small>{recipe.totalTime ?? recipe.cookTime ?? '—'} min · {entry.mealType.charAt(0).toUpperCase() + entry.mealType.slice(1)}</small></span>
                   <ArrowRight size={15} aria-hidden="true" />
                 </button>
               );

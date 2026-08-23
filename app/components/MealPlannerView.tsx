@@ -1,9 +1,11 @@
 'use client';
 
-import { CalendarPlus, ChevronLeft, ChevronRight, Clock3, Mail, Plus, ShieldCheck, ShoppingBasket, Trash2, X } from 'lucide-react';
+import { CalendarPlus, ChevronLeft, ChevronRight, Clock3, Mail, Plus, ShieldCheck, ShoppingBasket, Sparkles, Trash2, X } from 'lucide-react';
 import { useMemo, useState } from 'react';
+import { optimizeMealWeek, type RecommendedMeal } from '../../lib/meal-week-optimizer';
 import { formatSkylightWeek, skylightMailto } from '../../lib/skylight';
-import type { MealPlanEntry, Recipe } from '../../lib/types';
+import { MEAL_TYPES, type GroceryItem, type MealPlanEntry, type MealType, type Recipe } from '../../lib/types';
+import { OptimizeWeekDialog } from './OptimizeWeekDialog';
 
 function key(value: Date): string {
   return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`;
@@ -23,23 +25,27 @@ function addDays(value: Date, days: number): Date {
 }
 
 export function MealPlannerView({
-  recipes, entries, skylightEmail, onOpenSettings,
-  onPlanRecipes, onRemoveMeal, onOpenRecipe, onGenerateGroceries,
+  recipes, entries, groceryItems, skylightEmail, onOpenSettings,
+  onPlanRecipes, onRemoveMeal, onOpenRecipe, onGenerateGroceries, onApplyOptimization,
 }: {
   recipes: Recipe[];
   entries: MealPlanEntry[];
+  groceryItems: GroceryItem[];
   skylightEmail: string | null;
   onOpenSettings: () => void;
-  onPlanRecipes: (ids: string[], startDate?: string) => Promise<void>;
+  onPlanRecipes: (ids: string[], startDate?: string, mealType?: MealType) => Promise<void>;
   onRemoveMeal: (entry: MealPlanEntry) => Promise<void>;
   onOpenRecipe: (recipe: Recipe) => void;
   onGenerateGroceries: (entries: MealPlanEntry[]) => void;
+  onApplyOptimization: (schedule: readonly RecommendedMeal[]) => Promise<void>;
 }) {
   const [weekOffset, setWeekOffset] = useState(0);
   const [addOpen, setAddOpen] = useState(false);
   const [skylightOpen, setSkylightOpen] = useState(false);
+  const [optimizeOpen, setOptimizeOpen] = useState(false);
   const [chosenDate, setChosenDate] = useState(key(new Date()));
   const [recipeId, setRecipeId] = useState(recipes[0]?.id ?? '');
+  const [mealType, setMealType] = useState<MealType>('dinner');
 
   const days = useMemo(() => {
     const start = addDays(startOfWeek(new Date()), weekOffset * 7);
@@ -54,16 +60,21 @@ export function MealPlannerView({
     () => formatSkylightWeek(entries, recipes, startKey, endKey),
     [endKey, entries, recipes, startKey],
   );
+  const optimization = useMemo(
+    () => optimizeMealWeek({ recipes, mealPlan: entries, groceryItems, week: { startDate: startKey, endDate: endKey } }),
+    [endKey, entries, groceryItems, recipes, startKey],
+  );
 
   function openAdd(date: string) {
     setChosenDate(date);
     setRecipeId(recipes[0]?.id ?? '');
+    setMealType('dinner');
     setAddOpen(true);
   }
 
   async function addMeal() {
     if (!recipeId || !chosenDate) return;
-    await onPlanRecipes([recipeId], chosenDate);
+    await onPlanRecipes([recipeId], chosenDate, mealType);
     setAddOpen(false);
   }
 
@@ -84,6 +95,7 @@ export function MealPlannerView({
         </div>
         <div className="planner-actions">
           <button className="button button-secondary" type="button" onClick={() => openAdd(key(new Date()))}><CalendarPlus size={17} />Plan a meal</button>
+          <button className="button button-secondary" type="button" disabled={!weekEntries.length} onClick={() => setOptimizeOpen(true)}><Sparkles size={17} />Optimize week</button>
           <button className="button button-secondary" type="button" disabled={!skylightDraft.mealCount} onClick={() => setSkylightOpen(true)}><Mail size={17} />Send week to Skylight</button>
           <button className="button button-primary" type="button" disabled={!plannedRecipeIds.length} onClick={() => onGenerateGroceries(weekEntries)}><ShoppingBasket size={17} />Make grocery list</button>
         </div>
@@ -92,7 +104,9 @@ export function MealPlannerView({
       <div className="week-grid">
         {days.map((day) => {
           const dayKey = key(day);
-          const dayEntries = weekEntries.filter((entry) => entry.date === dayKey);
+          const dayEntries = weekEntries
+            .filter((entry) => entry.date === dayKey)
+            .sort((first, second) => MEAL_TYPES.indexOf(first.mealType) - MEAL_TYPES.indexOf(second.mealType));
           const isToday = dayKey === key(new Date());
           return (
             <section className={isToday ? 'day-column today' : 'day-column'} key={dayKey} aria-label={new Intl.DateTimeFormat('en-US', { weekday: 'long', month: 'long', day: 'numeric' }).format(day)}>
@@ -105,7 +119,7 @@ export function MealPlannerView({
                     <article className="planned-meal" key={entry.id}>
                       <button className="planned-main" type="button" onClick={() => onOpenRecipe(recipe)}>
                         {recipe.heroImage ? <img alt="" src={recipe.heroImage} /> : <span className="image-fallback" />}
-                        <span><small>{entry.mealType}</small><strong>{recipe.title}</strong><em><Clock3 size={12} />{recipe.totalTime ?? recipe.cookTime ?? '—'} min · {entry.servings ?? recipe.servings ?? '—'} servings</em></span>
+                        <span><small>{entry.mealType.charAt(0).toUpperCase() + entry.mealType.slice(1)}</small><strong>{recipe.title}</strong><em><Clock3 size={12} />{recipe.totalTime ?? recipe.cookTime ?? '—'} min · {entry.servings ?? recipe.servings ?? '—'} servings</em></span>
                       </button>
                       <button className="remove-meal" aria-label={`Remove ${recipe.title} from ${dayKey}`} type="button" onClick={() => onRemoveMeal(entry)}><Trash2 size={14} /></button>
                     </article>
@@ -119,7 +133,7 @@ export function MealPlannerView({
       </div>
 
       <section className="planner-summary">
-        <div><p className="eyebrow">Week at a glance</p><h2>{plannedRecipeIds.length ? `${plannedRecipeIds.length} dinners, one organized shop.` : 'A blank week is an invitation.'}</h2><p>{plannedRecipeIds.length ? 'Savor will combine overlapping ingredients and keep every recipe contribution visible.' : 'Add a favorite, try something new, or leave room for takeout.'}</p></div>
+        <div><p className="eyebrow">Week at a glance</p><h2>{weekEntries.length ? `${weekEntries.length} planned ${weekEntries.length === 1 ? 'meal' : 'meals'}, one organized shop.` : 'A blank week is an invitation.'}</h2><p>{weekEntries.length ? 'Savor will combine overlapping ingredients and keep every recipe contribution visible.' : 'Add a favorite, try something new, or leave room for takeout.'}</p></div>
         <button className="button button-primary" type="button" disabled={!plannedRecipeIds.length} onClick={() => onGenerateGroceries(weekEntries)}><ShoppingBasket size={17} />Generate from this week</button>
       </section>
 
@@ -131,7 +145,8 @@ export function MealPlannerView({
             <h2 id="plan-dialog-title">What sounds good?</h2>
             <label className="field-label">Recipe<select value={recipeId} onChange={(event) => setRecipeId(event.target.value)}>{recipes.map((recipe) => <option value={recipe.id} key={recipe.id}>{recipe.title}</option>)}</select></label>
             <label className="field-label">Date<input type="date" value={chosenDate} onChange={(event) => setChosenDate(event.target.value)} /></label>
-            <button className="button button-primary full-button" type="button" disabled={!recipeId} onClick={addMeal}>Add dinner</button>
+            <label className="field-label">Meal type<select value={mealType} onChange={(event) => setMealType(event.target.value as MealType)}>{MEAL_TYPES.map((type) => <option value={type} key={type}>{type.charAt(0).toUpperCase() + type.slice(1)}</option>)}</select></label>
+            <button className="button button-primary full-button" type="button" disabled={!recipeId} onClick={addMeal}>Add to meal plan</button>
           </section>
         </div>
       ) : null}
@@ -170,6 +185,8 @@ export function MealPlannerView({
           </section>
         </div>
       ) : null}
+
+      {optimizeOpen ? <OptimizeWeekDialog recommendation={optimization} onClose={() => setOptimizeOpen(false)} onApply={onApplyOptimization} /> : null}
     </section>
   );
 }

@@ -4,7 +4,8 @@ const SKYLIGHT_EMAIL_PATTERN = /^[A-Z0-9][A-Z0-9._+-]{0,63}@ourskylight\.com$/i;
 const MEAL_TYPE_ORDER: Record<MealPlanEntry['mealType'], number> = {
   breakfast: 0,
   lunch: 1,
-  dinner: 2,
+  snack: 2,
+  dinner: 3,
 };
 
 export interface SkylightEmailDraft {

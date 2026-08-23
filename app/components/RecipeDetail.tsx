@@ -7,7 +7,7 @@ import {
 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { formatIngredient, rational } from '../../lib/domain';
-import type { Recipe } from '../../lib/types';
+import { MEAL_TYPES, type MealType, type Recipe } from '../../lib/types';
 
 type Toast = { message: string; actionLabel?: string; action?: () => void } | null;
 
@@ -25,7 +25,7 @@ export function RecipeDetail({
   onClose: () => void;
   onCook: () => void;
   onFavorite: () => void;
-  onPlan: (date: string, servings: number) => void;
+  onPlan: (date: string, servings: number, mealType: MealType) => void;
   onGroceries: (servings: number) => void;
   onEdit: () => void;
   onDuplicate: () => void;
@@ -35,6 +35,7 @@ export function RecipeDetail({
   const [servings, setServings] = useState(recipe.servings ?? 4);
   const [planOpen, setPlanOpen] = useState(false);
   const [planDate, setPlanDate] = useState(tomorrow());
+  const [mealType, setMealType] = useState<MealType>('dinner');
   const [moreOpen, setMoreOpen] = useState(false);
   const factor = recipe.servings ? rational(servings, recipe.servings) : rational(1);
   const ingredientGroups = useMemo(() => {
@@ -147,10 +148,11 @@ export function RecipeDetail({
         <div className="dialog-backdrop nested-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setPlanOpen(false); }}>
           <section className="mini-dialog" role="dialog" aria-modal="true" aria-labelledby="detail-plan-title">
             <button className="dialog-x icon-button" aria-label="Close" type="button" onClick={() => setPlanOpen(false)}><X size={18} /></button>
-            <p className="eyebrow">Add to meal plan</p><h2 id="detail-plan-title">Choose a night.</h2>
+            <p className="eyebrow">Add to meal plan</p><h2 id="detail-plan-title">Choose when to serve it.</h2>
             <p>{recipe.title} · {servings} servings</p>
             <label className="field-label">Date<input type="date" value={planDate} onChange={(event) => setPlanDate(event.target.value)} /></label>
-            <button className="button button-primary full-button" type="button" onClick={() => { onPlan(planDate, servings); setPlanOpen(false); }}>Plan this dinner</button>
+            <label className="field-label">Meal type<select value={mealType} onChange={(event) => setMealType(event.target.value as MealType)}>{MEAL_TYPES.map((type) => <option value={type} key={type}>{type.charAt(0).toUpperCase() + type.slice(1)}</option>)}</select></label>
+            <button className="button button-primary full-button" type="button" onClick={() => { onPlan(planDate, servings, mealType); setPlanOpen(false); }}>Add to meal plan</button>
           </section>
         </div>
       ) : null}

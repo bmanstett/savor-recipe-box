@@ -374,7 +374,7 @@ export function aggregateRecipes(
       id: makeId('grocery'), ingredientName: group.name,
       normalizedIngredient: group.normalized,
       quantity: display?.value ?? null, unit: display?.unit ?? null,
-      groceryCategory: group.category, checked: false, manual: false,
+      groceryCategory: group.category, checked: false, purchasedAt: null, manual: false,
       recipeContributions: group.contributions, revision: 1,
       dateModified: new Date().toISOString(),
     };

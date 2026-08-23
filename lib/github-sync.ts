@@ -117,7 +117,14 @@ function assertBootstrapData(value: unknown): asserts value is BootstrapData {
     return ingredients && instructions && attachments;
   });
   const validMeals = value.mealPlan.every((row) => isObject(row) && typeof row.id === 'string' && typeof row.recipeId === 'string' && typeof row.date === 'string' && typeof row.dateModified === 'string');
-  const validGroceries = value.groceryItems.every((row) => isObject(row) && typeof row.id === 'string' && typeof row.ingredientName === 'string' && typeof row.normalizedIngredient === 'string' && typeof row.dateModified === 'string' && Array.isArray(row.recipeContributions));
+  const validGroceries = value.groceryItems.every((row) => isObject(row)
+    && typeof row.id === 'string'
+    && typeof row.ingredientName === 'string'
+    && typeof row.normalizedIngredient === 'string'
+    && typeof row.dateModified === 'string'
+    && (row.purchasedAt === undefined || row.purchasedAt === null
+      || (typeof row.purchasedAt === 'string' && !Number.isNaN(Date.parse(row.purchasedAt))))
+    && Array.isArray(row.recipeContributions));
   const skylightEmail = value.preferences.skylightDeviceEmail;
   const validSkylightEmail = skylightEmail === undefined || skylightEmail === null
     || (typeof skylightEmail === 'string' && isValidSkylightDeviceEmail(skylightEmail));

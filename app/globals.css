@@ -375,6 +375,76 @@ h1, h2, h3 { text-wrap: balance; }
 .field-label input:focus, .field-label textarea:focus, .field-label select:focus { border-color: var(--sage); box-shadow: 0 0 0 3px rgb(52 81 67 / 9%); }
 .field-label > small { color: var(--muted); font-size: 8px; font-weight: 450; line-height: 1.45; }
 
+/* Meal-plan optimizer */
+.optimize-backdrop { padding: clamp(10px, 3vw, 30px); }
+.optimize-dialog {
+  display: flex;
+  width: min(1040px, 100%);
+  max-height: calc(100vh - 40px);
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 27px;
+  background: var(--surface);
+  box-shadow: var(--shadow-float);
+}
+.optimize-dialog-header { position: relative; display: grid; grid-template-columns: 46px minmax(0, 1fr); gap: 15px; padding: 27px 70px 20px 28px; border-bottom: 1px solid var(--line); }
+.optimize-title-mark { display: grid; width: 46px; height: 46px; place-items: center; border-radius: 15px; background: var(--sage); color: white; }
+.optimize-dialog-header h2 { margin: 0; font-family: var(--serif); font-size: clamp(28px, 3vw, 38px); letter-spacing: -0.045em; }
+.optimize-dialog-header > div:last-of-type > p:last-child { max-width: 720px; margin: 7px 0 0; color: var(--muted); font-size: 11px; line-height: 1.55; }
+.optimize-scroll { overflow-y: auto; padding: 20px 28px 25px; overscroll-behavior: contain; }
+.optimization-confidence { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 18px; padding: 15px 17px; border: 1px solid #cbd8cf; border-radius: 16px; background: var(--sage-soft); }
+.optimization-confidence strong, .optimization-confidence span { display: block; }
+.optimization-confidence strong { color: var(--sage-dark); font-family: var(--serif); font-size: 17px; }
+.optimization-confidence span { margin-top: 4px; color: #5f6f65; font-size: 9px; line-height: 1.45; }
+.optimization-confidence > b { display: grid; min-width: 52px; height: 38px; place-items: center; border-radius: 11px; background: rgb(255 255 255 / 65%); color: var(--sage); font-size: 12px; }
+.optimization-confidence.confidence-low { border-color: #dfceb1; background: #f5eddf; }
+.optimization-confidence.confidence-low strong, .optimization-confidence.confidence-low > b { color: #7e6235; }
+.optimizer-assumption { margin: 10px 3px 0; color: var(--muted); font-size: 9px; line-height: 1.5; }
+.optimizer-grid { display: grid; grid-template-columns: minmax(0, 1.08fr) minmax(310px, 0.92fr); gap: 16px; align-items: start; margin-top: 18px; }
+.optimizer-panel { overflow: hidden; border: 1px solid var(--line); border-radius: 20px; background: #fff; }
+.optimizer-panel-heading { display: flex; align-items: center; gap: 11px; padding: 17px 18px 14px; border-bottom: 1px solid var(--line); background: #faf7f0; }
+.optimizer-panel-heading > span { display: grid; width: 36px; height: 36px; flex: 0 0 auto; place-items: center; border-radius: 12px; background: var(--terracotta-soft); color: var(--terracotta); }
+.optimizer-panel-heading .eyebrow { margin-bottom: 2px; font-size: 8px; }
+.optimizer-panel-heading h3 { margin: 0; font-family: var(--serif); font-size: 21px; letter-spacing: -0.03em; }
+.optimized-meal-list { display: grid; }
+.optimized-meal { display: grid; grid-template-columns: 43px minmax(0, 1fr); gap: 11px; padding: 13px 16px; border-bottom: 1px solid var(--line); }
+.optimized-meal:last-child { border-bottom: 0; }
+.optimized-date { display: grid; width: 39px; height: 45px; place-content: center; border-radius: 12px; background: var(--surface-soft); color: var(--sage); text-align: center; }
+.optimized-date small, .optimized-date strong { display: block; }
+.optimized-date small { font-size: 7px; font-weight: 800; text-transform: uppercase; }
+.optimized-date strong { font-family: var(--serif); font-size: 17px; line-height: 1; }
+.optimized-meal-copy { min-width: 0; }
+.optimized-meal-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; color: var(--terracotta); font-size: 7px; font-style: normal; font-weight: 800; letter-spacing: 0.05em; text-transform: uppercase; }
+.optimized-meal-meta em { padding: 3px 6px; border-radius: 999px; background: var(--terracotta-soft); font-style: normal; letter-spacing: 0; }
+.optimized-meal-copy h4 { margin: 4px 0 3px; overflow: hidden; font-family: var(--serif); font-size: 16px; line-height: 1.15; text-overflow: ellipsis; white-space: nowrap; }
+.optimized-meal-copy > p { margin: 0; color: var(--muted); font-size: 8px; line-height: 1.45; }
+.meal-move, .meal-keep { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; margin-top: 7px; color: var(--muted); font-size: 8px; }
+.meal-move strong, .meal-keep { color: var(--sage); font-weight: 800; }
+.unresolved-meal { background: #fbf3ed; }
+.unresolved-meal .optimized-date { color: var(--danger); }
+.prep-task-list { margin: 0; padding: 5px 16px 8px; list-style: none; counter-reset: prep-task; }
+.prep-task-list li { display: grid; grid-template-columns: 31px minmax(0, 1fr); gap: 10px; padding: 12px 0; border-bottom: 1px solid var(--line); }
+.prep-task-list li:last-child { border-bottom: 0; }
+.prep-task-list li > span { display: grid; width: 30px; height: 30px; place-items: center; border-radius: 10px; background: var(--sage-soft); color: var(--sage); }
+.prep-task-list strong, .prep-task-list small { display: block; }
+.prep-task-list strong { font-family: var(--serif); font-size: 13px; line-height: 1.35; }
+.prep-task-list small { margin-top: 3px; color: var(--terracotta); font-size: 7px; font-weight: 750; line-height: 1.4; }
+.prep-task-list p { margin: 4px 0 0; color: var(--muted); font-size: 8px; line-height: 1.45; }
+.optimizer-empty { margin: 0; padding: 24px 18px; color: var(--muted); font-size: 10px; line-height: 1.5; }
+.prep-warning-list { margin: 0 15px 15px; padding: 13px; border-radius: 14px; background: #f7eee4; }
+.prep-warning-list > h4 { display: flex; align-items: center; gap: 6px; margin: 0 0 7px; color: #805e37; font-size: 9px; text-transform: uppercase; }
+.prep-warning-list article { padding: 8px 0; border-top: 1px solid rgb(128 94 55 / 15%); }
+.prep-warning-list article strong { display: block; font-family: var(--serif); font-size: 12px; }
+.prep-warning-list article p { margin: 3px 0 0; color: #745f48; font-size: 8px; line-height: 1.45; }
+.optimizer-safety-note { display: flex; gap: 10px; margin-top: 16px; padding: 14px 16px; border: 1px dashed var(--line-strong); border-radius: 15px; color: var(--muted); }
+.optimizer-safety-note svg { flex: 0 0 auto; color: var(--terracotta); }
+.optimizer-safety-note p { margin: 0; font-size: 9px; line-height: 1.55; }
+.optimizer-safety-note strong { color: var(--ink); }
+.optimize-footer { display: flex; min-height: 72px; align-items: center; justify-content: space-between; gap: 20px; padding: 13px 28px; border-top: 1px solid var(--line); background: #faf7f0; }
+.optimize-footer > p { max-width: 500px; margin: 0; color: var(--muted); font-size: 9px; line-height: 1.45; }
+.optimize-footer > div { display: flex; flex: 0 0 auto; gap: 8px; }
+
 /* Recipe detail */
 .recipe-detail-layer { position: fixed; inset: 0; z-index: 110; display: flex; flex-direction: column; background: var(--paper); }
 .detail-topbar { z-index: 5; display: flex; min-height: 70px; align-items: center; justify-content: space-between; padding: calc(10px + env(safe-area-inset-top)) clamp(18px, 3vw, 42px) 10px; border-bottom: 1px solid var(--line); background: rgb(247 243 233 / 92%); backdrop-filter: blur(15px); }
@@ -663,7 +733,7 @@ h1, h2, h3 { text-wrap: balance; }
   .home-recipe-card:last-child { display: none; }
   .filters-placeholder { display: none; }
   .planner-toolbar { display: grid; }
-  .planner-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .planner-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .grocery-body { grid-template-columns: minmax(0, 1fr); }
   .grocery-insight-panel { position: static; grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .staple-list { grid-column: 1 / -1; }
@@ -699,6 +769,8 @@ h1, h2, h3 { text-wrap: balance; }
   .recipe-library-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .planner-toolbar { align-items: flex-start; }
   .week-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .optimizer-grid { grid-template-columns: 1fr; }
+  .optimize-dialog { max-width: 720px; }
   .detail-hero { grid-template-columns: 1fr; max-width: 760px; }
   .detail-image { aspect-ratio: 1.45; }
   .detail-intro h1 { font-size: 59px; }
@@ -755,6 +827,20 @@ h1, h2, h3 { text-wrap: balance; }
   .planned-main { grid-template-columns: 88px minmax(0, 1fr); }
   .remove-meal { opacity: 1; }
   .planner-summary { align-items: stretch; flex-direction: column; }
+  .optimize-backdrop { align-items: end; padding: 0; }
+  .optimize-dialog { width: 100%; max-height: calc(100vh - 10px); border-width: 1px 0 0; border-radius: 25px 25px 0 0; }
+  .optimize-dialog-header { grid-template-columns: 39px minmax(0, 1fr); gap: 11px; padding: 20px 58px 16px 18px; }
+  .optimize-title-mark { width: 39px; height: 39px; border-radius: 13px; }
+  .optimize-dialog-header h2 { font-size: 27px; }
+  .optimize-dialog-header > div:last-of-type > p:last-child { display: none; }
+  .optimize-scroll { padding: 16px 14px 20px; }
+  .optimization-confidence { padding: 13px; }
+  .optimization-confidence span { max-width: 60ch; }
+  .optimizer-grid { gap: 12px; margin-top: 14px; }
+  .optimize-footer { align-items: stretch; flex-direction: column; gap: 10px; padding: 12px 14px calc(12px + env(safe-area-inset-bottom)); }
+  .optimize-footer > p { max-width: none; }
+  .optimize-footer > div { display: grid; grid-template-columns: 1fr 1.35fr; }
+  .optimize-footer .button { padding-inline: 9px; font-size: 9px; }
   .shopping-summary { grid-template-columns: 1fr; padding: 20px; }
   .grocery-summary-actions { display: grid; grid-template-columns: 1fr 1fr; }
   .grocery-insight-panel { grid-template-columns: 1fr; }
@@ -845,6 +931,10 @@ h1, h2, h3 { text-wrap: balance; }
   .ingredients-heading { align-items: flex-start; }
   .ingredients-heading h2, .instructions-heading h2 { font-size: 30px; }
   .four-fields, .two-fields { grid-template-columns: 1fr; }
+  .optimization-confidence { grid-template-columns: 1fr; gap: 9px; }
+  .optimization-confidence > b { width: 52px; }
+  .optimized-meal { padding-inline: 12px; }
+  .optimize-footer > div { grid-template-columns: 1fr; }
   .review-image { aspect-ratio: 1.3; }
   .sheet-header > div { min-width: 0; }
   .sheet-header p:not(.eyebrow) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

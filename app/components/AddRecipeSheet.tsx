@@ -2,11 +2,12 @@
 
 import {
   AlertCircle, ArrowLeft, Camera, CheckCircle2, ClipboardPaste, FileImage,
-  Link2, LoaderCircle, PenLine, ScanLine, Upload, X,
+  ExternalLink, Instagram, Link2, LoaderCircle, PenLine, ScanLine, Upload, X,
 } from 'lucide-react';
 import { ChangeEvent, FormEvent, useEffect, useRef, useState } from 'react';
 import { createBlankDraft, makeId, parseIngredientLine, parseRecipeText } from '../../lib/domain';
 import { prepareRecipeImage } from '../../lib/image-processing';
+import { parseRecipeSourceUrl } from '../../lib/recipe-source';
 import type { ImportResult, Instruction, Recipe, RecipeDraft } from '../../lib/types';
 
 function recipeToDraft(recipe: Recipe): RecipeDraft {
@@ -49,7 +50,9 @@ export function AddRecipeSheet({ initialRecipe, onClose, onSave }: {
   const [provider, setProvider] = useState<ImportResult['provider'] | 'manual'>(initialRecipe ? 'manual' : 'manual');
   const [url, setUrl] = useState('');
   const [pastedText, setPastedText] = useState('');
-  const [mode, setMode] = useState<'choose' | 'link' | 'paste'>('choose');
+  const [mode, setMode] = useState<'choose' | 'link' | 'paste' | 'instagram'>('choose');
+  const [instagramSourceURL, setInstagramSourceURL] = useState<string | null>(null);
+  const [keepInstagramSource, setKeepInstagramSource] = useState(true);
   const [processing, setProcessing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<{ message: string; recovery?: string[] } | null>(null);
@@ -79,11 +82,18 @@ export function AddRecipeSheet({ initialRecipe, onClose, onSave }: {
     setProcessing(true);
     setError(null);
     try {
-      const source = new URL(url);
-      if (!['http:', 'https:'].includes(source.protocol)) throw new Error('unsupported');
+      const source = parseRecipeSourceUrl(url);
+      if (!source) throw new Error('unsupported');
+      if (source.kind === 'instagram') {
+        setInstagramSourceURL(source.href);
+        setKeepInstagramSource(true);
+        setPastedText('');
+        setMode('instagram');
+        return;
+      }
       const next = createBlankDraft('url');
-      next.sourceURL = source.toString();
-      next.sourceName = source.hostname.replace(/^www\./, '');
+      next.sourceURL = source.href;
+      next.sourceName = source.sourceName;
       openReview({
         draft: next,
         provider: 'manual',
@@ -101,6 +111,12 @@ export function AddRecipeSheet({ initialRecipe, onClose, onSave }: {
     setError(null);
     try {
       const result = parseRecipeText(pastedText);
+      if (mode === 'instagram' && instagramSourceURL && keepInstagramSource) {
+        result.draft.sourceType = 'url';
+        result.draft.sourceURL = instagramSourceURL;
+        result.draft.sourceName = 'Instagram';
+        result.warnings.unshift('Instagram source link retained. Only the text you pasted was parsed; Savor did not download or inspect the reel.');
+      }
       openReview({ ...result, provider: 'text-parser' });
     } catch {
       setError({ message: 'Savor could not structure the pasted recipe.', recovery: ['Try again', 'Create manually'] });
@@ -173,7 +189,7 @@ export function AddRecipeSheet({ initialRecipe, onClose, onSave }: {
         <header className="sheet-header">
           <div>
             {mode !== 'choose' || phase === 'review' ? <button className="sheet-back" type="button" onClick={() => phase === 'review' && !initialRecipe ? setPhase('source') : setMode('choose')}><ArrowLeft size={17} />Back</button> : <p className="eyebrow">Universal capture</p>}
-            <h1 id="add-recipe-title">{phase === 'review' ? (initialRecipe ? 'Edit recipe' : 'Review recipe') : mode === 'link' ? 'Import from a link' : mode === 'paste' ? 'Paste recipe text' : 'Add a recipe'}</h1>
+            <h1 id="add-recipe-title">{phase === 'review' ? (initialRecipe ? 'Edit recipe' : 'Review recipe') : mode === 'link' ? 'Import from a link' : mode === 'instagram' ? 'Import from Instagram' : mode === 'paste' ? 'Paste recipe text' : 'Add a recipe'}</h1>
             <p>{phase === 'review' ? 'Everything stays structured and user-correctable.' : 'Choose the easiest way to bring it into your cookbook.'}</p>
           </div>
           <button className="icon-button" aria-label="Close" type="button" onClick={onClose}><X size={20} /></button>
@@ -202,13 +218,33 @@ export function AddRecipeSheet({ initialRecipe, onClose, onSave }: {
             </form>
           ) : null}
 
-          {phase === 'source' && mode === 'paste' ? (
+          {phase === 'source' && (mode === 'paste' || mode === 'instagram') ? (
             <form className="capture-form paste-form" onSubmit={importText}>
-              <div className="capture-form-icon"><ClipboardPaste size={24} /></div>
-              <label className="field-label">Recipe text<textarea autoFocus rows={13} placeholder={'Chicken Piccata\nServes 4\n\nIngredients\n2 chicken breasts\n½ cup flour\n\nInstructions\n1. Slice the chicken…'} value={pastedText} onChange={(event) => setPastedText(event.target.value)} /></label>
-              <p className="field-help">Headings such as Ingredients, Directions, Method, and section names help the parser preserve structure.</p>
+              <div className="capture-form-icon">{mode === 'instagram' ? <Instagram size={24} /> : <ClipboardPaste size={24} />}</div>
+              {mode === 'instagram' ? (
+                <>
+                  <div className="capture-error" role="status">
+                    <AlertCircle size={18} />
+                    <div>
+                      <strong>This static app cannot extract reel content directly</strong>
+                      <p>It is not simply an offline issue: supported Instagram access requires live Meta metadata or API credentials. Savor does not scrape Instagram, sign in as you, or claim that the reel was imported.</p>
+                      <div>{instagramSourceURL ? <a className="button button-secondary" href={instagramSourceURL} target="_blank" rel="noreferrer">Open on Instagram<ExternalLink size={13} /></a> : null}</div>
+                    </div>
+                  </div>
+                  <div className="field-label">
+                    <span>Original source</span>
+                    <button className="button button-secondary full-button" type="button" aria-pressed={keepInstagramSource} onClick={() => setKeepInstagramSource((current) => !current)}>
+                      {keepInstagramSource ? <CheckCircle2 size={16} /> : <Link2 size={16} />}
+                      {keepInstagramSource ? 'Instagram source link will be kept' : 'Instagram source link will not be kept'}
+                    </button>
+                    <small>You can change this before importing. Keeping the link makes it easy to return to the original reel from the saved recipe.</small>
+                  </div>
+                </>
+              ) : null}
+              <label className="field-label">{mode === 'instagram' ? 'Caption or recipe text' : 'Recipe text'}<textarea autoFocus rows={13} placeholder={mode === 'instagram' ? 'Copy the recipe caption from Instagram and paste it here…' : 'Chicken Piccata\nServes 4\n\nIngredients\n2 chicken breasts\n½ cup flour\n\nInstructions\n1. Slice the chicken…'} value={pastedText} onChange={(event) => setPastedText(event.target.value)} /></label>
+              <p className="field-help">{mode === 'instagram' ? 'Copy the caption—and any recipe details the creator placed in a comment—then paste them here. ' : ''}Headings such as Ingredients, Directions, Method, and section names help the parser preserve structure.</p>
               {error ? <ErrorBox error={error} onManual={startManual} /> : null}
-              <button className="button button-primary full-button" type="submit" disabled={processing || pastedText.trim().length < 8}>{processing ? <><LoaderCircle className="spin" size={17} />Structuring recipe…</> : 'Review imported recipe'}</button>
+              <button className="button button-primary full-button" type="submit" disabled={processing || pastedText.trim().length < 8}>{processing ? <><LoaderCircle className="spin" size={17} />Structuring recipe…</> : mode === 'instagram' ? 'Review pasted Instagram recipe' : 'Review imported recipe'}</button>
             </form>
           ) : null}
 

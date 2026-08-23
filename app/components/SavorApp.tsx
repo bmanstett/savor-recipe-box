@@ -8,8 +8,11 @@ import { useCallback, useEffect, useState, type Dispatch, type SetStateAction } 
 import { aggregateRecipes, draftToRecipe, makeId, parseIngredientLine } from '../../lib/domain';
 import type { StoredGitHubConnection } from '../../lib/client-cache';
 import { parseBackupFile } from '../../lib/github-sync';
+import type { RecommendedMeal } from '../../lib/meal-week-optimizer';
 import type { GitHubConnectInput, SyncPresentation } from '../../lib/sync-types';
+import { MEAL_TYPES } from '../../lib/types';
 import type {
+  MealType,
   BootstrapData, GroceryCategory, GroceryItem, HouseholdPreferences,
   MealPlanEntry, Recipe, RecipeDraft,
 } from '../../lib/types';
@@ -154,7 +157,7 @@ export function SavorApp({
     };
     setData((current) => ({ ...current, recipes: current.recipes.map((item) => item.id === recipe.id ? updated : item) }));
     setCookingRecipe(null);
-    showToast({ message: 'Dinner remembered. Nice work.' });
+    showToast({ message: 'Meal remembered. Nice work.' });
   }
 
   async function duplicateRecipe(recipe: Recipe) {
@@ -170,22 +173,47 @@ export function SavorApp({
     showToast({ message: 'Recipe duplicated.' });
   }
 
-  async function planRecipes(recipeIds: string[], startDate = dateKey(addDays(new Date(), 1)), servingsByRecipe: Record<string, number | null> = {}) {
+  async function planRecipes(
+    recipeIds: string[],
+    startDate = dateKey(addDays(new Date(), 1)),
+    mealType: MealType = 'dinner',
+    servingsByRecipe: Record<string, number | null> = {},
+  ) {
     const start = new Date(`${startDate}T12:00:00`);
     const entries = recipeIds.map((recipeId, index): MealPlanEntry => {
       const recipe = data.recipes.find((item) => item.id === recipeId);
       return {
-        id: makeId('meal'), date: dateKey(addDays(start, index)), mealType: 'dinner',
+        id: makeId('meal'), date: dateKey(addDays(start, index)), mealType,
         recipeId, servings: servingsByRecipe[recipeId] ?? recipe?.servings ?? 4, revision: 1, dateModified: new Date().toISOString(),
       };
     });
-    setData((current) => ({ ...current, mealPlan: [...current.mealPlan, ...entries].sort((a, b) => a.date.localeCompare(b.date)) }));
+    setData((current) => ({
+      ...current,
+      mealPlan: [...current.mealPlan, ...entries].sort((a, b) => a.date.localeCompare(b.date)
+        || MEAL_TYPES.indexOf(a.mealType) - MEAL_TYPES.indexOf(b.mealType)),
+    }));
     showToast({ message: `${entries.length} ${entries.length === 1 ? 'meal' : 'meals'} added to the plan.` });
   }
 
   async function removeMeal(entry: MealPlanEntry) {
     setData((current) => ({ ...current, mealPlan: current.mealPlan.filter((item) => item.id !== entry.id) }));
     showToast({ message: 'Meal removed from the plan.' });
+  }
+
+  async function applyMealOptimization(schedule: readonly RecommendedMeal[]) {
+    const recommendedDates = new Map(schedule.map((meal) => [meal.sourceEntryId, meal.date]));
+    const movedCount = schedule.filter((meal) => meal.moved).length;
+    const changedAt = new Date().toISOString();
+    setData((current) => ({
+      ...current,
+      mealPlan: current.mealPlan.map((entry) => {
+        const recommendedDate = recommendedDates.get(entry.id);
+        if (!recommendedDate || recommendedDate === entry.date) return entry;
+        return { ...entry, date: recommendedDate, revision: entry.revision + 1, dateModified: changedAt };
+      }).sort((a, b) => a.date.localeCompare(b.date)
+        || MEAL_TYPES.indexOf(a.mealType) - MEAL_TYPES.indexOf(b.mealType)),
+    }));
+    showToast({ message: `${movedCount} ${movedCount === 1 ? 'meal was' : 'meals were'} moved to fresher days.` });
   }
 
   async function generateGroceries(recipeIds?: string[], mealEntries?: MealPlanEntry[], selectedServings: Record<string, number | null> = {}) {
@@ -205,8 +233,14 @@ export function SavorApp({
       occurrences,
     );
     const manual = data.groceryItems.filter((item) => item.manual);
-    const checked = new Map(data.groceryItems.map((item) => [`${item.normalizedIngredient}|${item.unit}`, item.checked]));
-    const optimistic = generated.map((item) => ({ ...item, checked: checked.get(`${item.normalizedIngredient}|${item.unit}`) ?? false }));
+    const purchased = new Map(data.groceryItems.map((item) => [`${item.normalizedIngredient}|${item.unit}`, {
+      checked: item.checked,
+      purchasedAt: item.purchasedAt ?? (item.checked ? item.dateModified : null),
+    }]));
+    const optimistic = generated.map((item) => {
+      const previous = purchased.get(`${item.normalizedIngredient}|${item.unit}`);
+      return { ...item, checked: previous?.checked ?? false, purchasedAt: previous?.purchasedAt ?? null };
+    });
     setData((current) => ({ ...current, groceryItems: [...optimistic, ...manual] }));
     setView('grocery');
     showToast({ message: `${generated.length} grocery items organized by aisle.` });
@@ -218,7 +252,7 @@ export function SavorApp({
       id: makeId('grocery'), ingredientName: ingredient.ingredientName,
       normalizedIngredient: ingredient.normalizedIngredient, quantity: ingredient.quantity,
       unit: ingredient.normalizedUnit, groceryCategory: ingredient.groceryCategory,
-      checked: false, manual: true, recipeContributions: [], revision: 1,
+      checked: false, purchasedAt: null, manual: true, recipeContributions: [], revision: 1,
       dateModified: new Date().toISOString(),
     };
     setData((current) => ({ ...current, groceryItems: [...current.groceryItems, item] }));
@@ -226,12 +260,16 @@ export function SavorApp({
 
   async function toggleGroceryItem(item: GroceryItem) {
     const checked = !item.checked;
-    const update = (value: boolean) => setData((current) => ({
-      ...current,
-      groceryItems: current.groceryItems.map((row) => row.id === item.id ? {
-        ...row, checked: value, revision: row.revision + 1, dateModified: new Date().toISOString(),
-      } : row),
-    }));
+    const update = (value: boolean) => {
+      const changedAt = new Date().toISOString();
+      setData((current) => ({
+        ...current,
+        groceryItems: current.groceryItems.map((row) => row.id === item.id ? {
+          ...row, checked: value, purchasedAt: value ? changedAt : null,
+          revision: row.revision + 1, dateModified: changedAt,
+        } : row),
+      }));
+    };
     update(checked);
     showToast(checked ? {
       message: `${item.ingredientName} checked off.`, actionLabel: 'Undo',
@@ -398,7 +436,7 @@ export function SavorApp({
             <RecipesView recipes={data.recipes} query={query} onQueryChange={setQuery} filter={recipeFilter} onFilterChange={setRecipeFilter} onOpenRecipe={setSelectedRecipe} onToggleFavorite={toggleFavorite} onAddRecipe={() => setAddOpen(true)} onPlanRecipes={planRecipes} onGenerateGroceries={generateGroceries} />
           ) : null}
           {view === 'plan' ? (
-            <MealPlannerView recipes={data.recipes} entries={data.mealPlan} skylightEmail={data.preferences.skylightDeviceEmail ?? null} onOpenSettings={() => setSettingsOpen(true)} onPlanRecipes={planRecipes} onRemoveMeal={removeMeal} onOpenRecipe={setSelectedRecipe} onGenerateGroceries={(entries) => generateGroceries(undefined, entries)} />
+            <MealPlannerView recipes={data.recipes} entries={data.mealPlan} groceryItems={data.groceryItems} skylightEmail={data.preferences.skylightDeviceEmail ?? null} onOpenSettings={() => setSettingsOpen(true)} onPlanRecipes={planRecipes} onRemoveMeal={removeMeal} onOpenRecipe={setSelectedRecipe} onGenerateGroceries={(entries) => generateGroceries(undefined, entries)} onApplyOptimization={applyMealOptimization} />
           ) : null}
           {view === 'grocery' ? (
             <GroceryView items={data.groceryItems} preferences={data.preferences} onToggle={toggleGroceryItem} onAdd={addGroceryItem} onDelete={deleteGrocery} onChangeCategory={updateGroceryCategory} onGenerate={() => generateGroceries()} />
@@ -424,7 +462,7 @@ export function SavorApp({
           onClose={() => setSelectedRecipe(null)}
           onCook={() => { setCookingRecipe(selectedFresh); setSelectedRecipe(null); }}
           onFavorite={() => toggleFavorite(selectedFresh)}
-          onPlan={(date, servings) => planRecipes([selectedFresh.id], date, { [selectedFresh.id]: servings })}
+          onPlan={(date, servings, mealType) => planRecipes([selectedFresh.id], date, mealType, { [selectedFresh.id]: servings })}
           onGroceries={(servings) => generateGroceries([selectedFresh.id], undefined, { [selectedFresh.id]: servings })}
           onEdit={() => { setEditingRecipe(selectedFresh); setSelectedRecipe(null); setAddOpen(true); }}
           onDuplicate={() => duplicateRecipe(selectedFresh)}

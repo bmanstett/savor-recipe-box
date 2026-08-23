@@ -1,5 +1,6 @@
 export type SourceType = 'url' | 'photo' | 'screenshot' | 'pasted-text' | 'manual';
-export type MealType = 'breakfast' | 'lunch' | 'dinner';
+export const MEAL_TYPES = ['breakfast', 'lunch', 'snack', 'dinner'] as const;
+export type MealType = (typeof MEAL_TYPES)[number];
 export type GroceryCategory =
   | 'Produce'
   | 'Meat & Seafood'
@@ -118,6 +119,7 @@ export interface GroceryItem {
   recipeContributions: RecipeContribution[];
   revision: number;
   dateModified: string;
+  purchasedAt?: string | null;
 }
 
 export interface HouseholdPreferences {

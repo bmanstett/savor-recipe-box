@@ -122,7 +122,17 @@ function applyLegacyMutations(source: BootstrapData, mutations: LegacyMutation[]
         data.preferences.excludePantryStaples ? data.preferences.pantryStaples : [],
         Array.isArray(body.occurrences) ? body.occurrences as Array<{ recipeId: string; servings: number | null }> : [],
       );
-      data.groceryItems = [...generated, ...data.groceryItems.filter((item) => item.manual)];
+      const purchased = new Map(data.groceryItems.map((item) => [`${item.normalizedIngredient}|${item.unit}`, {
+        checked: item.checked,
+        purchasedAt: item.purchasedAt ?? (item.checked ? item.dateModified : null),
+      }]));
+      data.groceryItems = [
+        ...generated.map((item) => {
+          const previous = purchased.get(`${item.normalizedIngredient}|${item.unit}`);
+          return { ...item, checked: previous?.checked ?? false, purchasedAt: previous?.purchasedAt ?? null };
+        }),
+        ...data.groceryItems.filter((item) => item.manual),
+      ];
       continue;
     }
     if (mutation.url === '/api/grocery' && mutation.method === 'POST' && typeof body.rawText === 'string') {
@@ -135,6 +145,7 @@ function applyLegacyMutations(source: BootstrapData, mutations: LegacyMutation[]
         unit: ingredient.normalizedUnit,
         groceryCategory: ingredient.groceryCategory,
         checked: false,
+        purchasedAt: null,
         manual: true,
         recipeContributions: [],
         revision: 1,

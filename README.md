@@ -26,3 +26,16 @@ GitHub stores synchronized state at `savor/v1/state.json` and compressed photos 
 
 - Add the Calendar's `@ourskylight.com` device email in **Household settings → Skylight Sidekick**. From the meal planner, **Send week to Skylight** opens a prepared email draft; the user reviews and sends it. Native menu imports require Skylight Calendar Plus.
 - **Print list** on the grocery screen opens the browser print dialog with a clean, store-section-ordered layout. The current **Hide checked** setting controls which items are included.
+
+## Meal planning and prep optimization
+
+- Every planning flow asks whether a recipe is for **Breakfast**, **Lunch**, **Snack**, or **Dinner**.
+- Checking off a grocery item records its purchase time. **Optimize week** uses those timestamps and conservative ingredient-storage categories to suggest which planned meals belong earlier in the week.
+- Optimization is preview-only until the user chooses **Apply suggested days**. It never changes meal types or silently rearranges the plan.
+- The review also generates a Sunday make-ahead checklist. Lunches are treated as Sunday meal prep, with later portions flagged for freezing when appropriate.
+
+Freshness guidance is intentionally conservative. Package dates, refrigerator temperature, visible spoilage, and official food-safety guidance always take precedence over the optimizer.
+
+## Instagram links
+
+The GitHub Pages app does not scrape Instagram or place Meta credentials in the public browser bundle. For an Instagram reel, Savor keeps an optional source link and asks the user to paste the caption or recipe text, then parses only that pasted text into an editable draft.

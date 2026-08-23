@@ -5,7 +5,7 @@ import {
   ShoppingBasket, SlidersHorizontal, X,
 } from 'lucide-react';
 import { useMemo, useState } from 'react';
-import type { Recipe } from '../../lib/types';
+import { MEAL_TYPES, type MealType, type Recipe } from '../../lib/types';
 
 export type Filter = 'all' | 'favorites' | 'quick' | 'recent';
 
@@ -27,7 +27,7 @@ export function RecipesView({
   onOpenRecipe: (recipe: Recipe) => void;
   onToggleFavorite: (recipe: Recipe) => void;
   onAddRecipe: () => void;
-  onPlanRecipes: (ids: string[], startDate?: string) => Promise<void>;
+  onPlanRecipes: (ids: string[], startDate?: string, mealType?: MealType) => Promise<void>;
   onGenerateGroceries: (ids?: string[]) => Promise<void>;
 }) {
   const [layout, setLayout] = useState<'grid' | 'list'>('grid');
@@ -35,6 +35,7 @@ export function RecipesView({
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [planOpen, setPlanOpen] = useState(false);
   const [startDate, setStartDate] = useState(tomorrow());
+  const [mealType, setMealType] = useState<MealType>('dinner');
 
   const visible = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
@@ -68,7 +69,7 @@ export function RecipesView({
   }
 
   async function submitPlan() {
-    await onPlanRecipes([...selected], startDate);
+    await onPlanRecipes([...selected], startDate, mealType);
     setPlanOpen(false);
     leaveSelection();
   }
@@ -146,9 +147,10 @@ export function RecipesView({
           <section className="mini-dialog" role="dialog" aria-modal="true" aria-labelledby="batch-plan-title">
             <button className="dialog-x icon-button" aria-label="Close" type="button" onClick={() => setPlanOpen(false)}><X size={18} /></button>
             <p className="eyebrow">Plan {selected.size} {selected.size === 1 ? 'meal' : 'meals'}</p>
-            <h2 id="batch-plan-title">Choose the first night.</h2>
-            <p>Additional recipes will fill the following nights. You can move them any time.</p>
+            <h2 id="batch-plan-title">Choose the first date.</h2>
+            <p>Additional recipes will fill the following days at the same meal time. You can move them any time.</p>
             <label className="field-label">Starting date<input type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} /></label>
+            <label className="field-label">Meal type<select value={mealType} onChange={(event) => setMealType(event.target.value as MealType)}>{MEAL_TYPES.map((type) => <option value={type} key={type}>{type.charAt(0).toUpperCase() + type.slice(1)}</option>)}</select></label>
             <button className="button button-primary full-button" type="button" onClick={submitPlan}>Add to meal plan</button>
           </section>
         </div>

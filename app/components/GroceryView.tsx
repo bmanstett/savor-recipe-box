@@ -1,6 +1,6 @@
 'use client';
 
-import { Check, ChevronDown, Info, Plus, Printer, RefreshCw, RotateCcw, ShoppingBasket, Trash2 } from 'lucide-react';
+import { Check, ChevronDown, Clock3, Info, Plus, Printer, RefreshCw, RotateCcw, ShoppingBasket, Trash2 } from 'lucide-react';
 import { FormEvent, useMemo, useState } from 'react';
 import { formatRational } from '../../lib/domain';
 import type { GroceryCategory, GroceryItem, HouseholdPreferences } from '../../lib/types';
@@ -14,6 +14,15 @@ function itemQuantity(item: GroceryItem): string {
   const quantity = formatRational(item.quantity);
   const unit = item.unit === 'each' ? '' : item.unit ?? '';
   return [quantity, unit].filter(Boolean).join(' ') || 'As needed';
+}
+
+function itemSubtitle(item: GroceryItem): string {
+  const source = item.manual ? 'Added manually' : `${item.recipeContributions.length} recipe${item.recipeContributions.length === 1 ? '' : 's'}`;
+  if (!item.checked) return source;
+  if (!item.purchasedAt) return `${source} · Purchased`;
+  const purchased = new Date(item.purchasedAt);
+  if (Number.isNaN(purchased.getTime())) return `${source} · Purchased`;
+  return `${source} · Purchased ${new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' }).format(purchased)}`;
 }
 
 export function GroceryView({
@@ -106,7 +115,7 @@ export function GroceryView({
                   {sectionItems.map((item) => (
                     <article className={item.checked ? 'grocery-row checked' : 'grocery-row'} key={item.id}>
                       <button className="grocery-check" aria-label={item.checked ? `Return ${item.ingredientName} to list` : `Mark ${item.ingredientName} purchased`} aria-pressed={item.checked} type="button" onClick={() => onToggle(item)}><Check size={17} /></button>
-                      <button className="grocery-name" type="button" onClick={() => onToggle(item)}><strong>{item.ingredientName}</strong><small>{item.manual ? 'Added manually' : `${item.recipeContributions.length} recipe${item.recipeContributions.length === 1 ? '' : 's'}`}</small></button>
+                      <button className="grocery-name" type="button" onClick={() => onToggle(item)}><strong>{item.ingredientName}</strong><small>{itemSubtitle(item)}</small></button>
                       <span className="grocery-quantity">{itemQuantity(item)}</span>
                       <details className="grocery-details">
                         <summary aria-label={`Details for ${item.ingredientName}`}><ChevronDown size={17} /></summary>
@@ -134,6 +143,7 @@ export function GroceryView({
         </div>
 
         <aside className="grocery-insight-panel">
+          <section><span className="insight-icon"><Clock3 size={18} /></span><div><h3>Purchase timing</h3><p>Checking an item off records when it was purchased. The week optimizer uses that time to place shorter-lived ingredients first.</p></div></section>
           <section><span className="insight-icon"><Info size={18} /></span><div><h3>Conservative by design</h3><p>Red and yellow onions stay separate. Mass never converts to volume. Tap any item to see its recipe sources.</p></div></section>
           <section><span className="insight-icon"><RotateCcw size={18} /></span><div><h3>Pantry staples</h3><p>{preferences.excludePantryStaples ? `${preferences.pantryStaples.length} usual staples are excluded automatically.` : 'Pantry staples are currently included.'}</p></div></section>
           <div className="staple-list">{preferences.pantryStaples.slice(0, 5).map((staple) => <span key={staple}>{staple}</span>)}</div>
