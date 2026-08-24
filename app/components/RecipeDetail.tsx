@@ -46,6 +46,7 @@ export function RecipeDetail({
     });
     return [...groups.entries()];
   }, [recipe]);
+  const additionalSources = (recipe.sourceLinks ?? []).filter((source) => source.url !== recipe.sourceURL);
 
   async function share() {
     const shareData = {
@@ -94,7 +95,11 @@ export function RecipeDetail({
             </div>
             <h1 id="recipe-detail-title">{recipe.title}</h1>
             <p>{recipe.description}</p>
-            {recipe.sourceURL ? <a className="source-link" href={recipe.sourceURL} target="_blank" rel="noreferrer">{recipe.sourceName ?? new URL(recipe.sourceURL).hostname}<ExternalLink size={13} /></a> : recipe.sourceName ? <span className="source-link static-source">{recipe.sourceName}</span> : null}
+            {recipe.author ? <span className="recipe-author">By {recipe.author}</span> : null}
+            <div className="detail-source-links">
+              {recipe.sourceURL ? <a className="source-link" href={recipe.sourceURL} target="_blank" rel="noreferrer">{recipe.sourceName ?? new URL(recipe.sourceURL).hostname}<ExternalLink size={13} /></a> : recipe.sourceName ? <span className="source-link static-source">{recipe.sourceName}</span> : null}
+              {additionalSources.map((source) => <a className="source-link" href={source.url} target="_blank" rel="noreferrer" key={`${source.kind}:${source.url}`}>{source.label}<ExternalLink size={13} /></a>)}
+            </div>
             <div className="detail-meta-grid">
               <span><small>Prep</small><strong>{recipe.prepTime ?? '—'} min</strong></span>
               <span><small>Cook</small><strong>{recipe.cookTime ?? '—'} min</strong></span>

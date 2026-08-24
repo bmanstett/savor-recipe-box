@@ -1,0 +1,67 @@
+name: Process Savor recipe imports
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - savor/v1/imports/requests/*.json
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: savor-recipe-import-${{ github.repository }}
+  cancel-in-progress: false
+  queue: max
+
+jobs:
+  process:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+
+    steps:
+      - name: Check out private Savor data
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Process pending recipe imports
+        id: importer
+        uses: bmanstett/savor-recipe-box/.github/actions/process-recipe-import@REPLACE_WITH_IMPORTER_COMMIT_FULL_SHA
+        with:
+          root: .
+          max-jobs: '100'
+
+      - name: Commit generated results
+        id: commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add -- savor/v1/imports/results
+          if git diff --cached --quiet; then
+            echo "created=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Process Savor recipe imports"
+          echo "created=true" >> "$GITHUB_OUTPUT"
+
+      - name: Rebase and push results
+        if: steps.commit.outputs.created == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3 4 5; do
+            git fetch --no-tags origin "+refs/heads/main:refs/remotes/origin/main"
+            if ! git rebase refs/remotes/origin/main; then
+              git rebase --abort || true
+              exit 1
+            fi
+            if git push origin HEAD:refs/heads/main; then exit 0; fi
+            sleep $((attempt * 2))
+          done
+          exit 1

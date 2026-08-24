@@ -111,10 +111,15 @@ function assertBootstrapData(value: unknown): asserts value is BootstrapData {
     if (!isObject(row) || typeof row.id !== 'string' || typeof row.title !== 'string' || typeof row.description !== 'string') return false;
     if (!Array.isArray(row.ingredients) || !Array.isArray(row.instructions) || !Array.isArray(row.attachments) || !Array.isArray(row.tags) || !Array.isArray(row.categories)) return false;
     if (!isImageReference(row.heroImage) || !isHttpUrl(row.sourceURL)) return false;
+    const sourceLinks = row.sourceLinks;
+    const validSourceLinks = sourceLinks === undefined || (Array.isArray(sourceLinks) && sourceLinks.length <= 20 && sourceLinks.every((item) => isObject(item)
+      && ['instagram-post', 'creator-profile', 'recipe-page'].includes(String(item.kind))
+      && typeof item.url === 'string' && isHttpUrl(item.url)
+      && typeof item.label === 'string' && item.label.length <= 500));
     const ingredients = row.ingredients.every((item) => isObject(item) && typeof item.id === 'string' && typeof item.rawText === 'string' && typeof item.ingredientName === 'string' && typeof item.normalizedIngredient === 'string');
     const instructions = row.instructions.every((item) => isObject(item) && typeof item.id === 'string' && typeof item.text === 'string' && typeof item.stepNumber === 'number');
     const attachments = row.attachments.every((item) => isObject(item) && typeof item.id === 'string' && typeof item.url === 'string' && isImageReference(item.url));
-    return ingredients && instructions && attachments;
+    return ingredients && instructions && attachments && validSourceLinks;
   });
   const validMeals = value.mealPlan.every((row) => isObject(row) && typeof row.id === 'string' && typeof row.recipeId === 'string' && typeof row.date === 'string' && typeof row.dateModified === 'string');
   const validGroceries = value.groceryItems.every((row) => isObject(row)

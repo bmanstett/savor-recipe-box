@@ -8,6 +8,7 @@ import { useCallback, useEffect, useState, type Dispatch, type SetStateAction } 
 import { aggregateRecipes, draftToRecipe, makeId, parseIngredientLine } from '../../lib/domain';
 import { readSkylightEmailApp, saveSkylightEmailApp, type StoredGitHubConnection } from '../../lib/client-cache';
 import { parseBackupFile } from '../../lib/github-sync';
+import type { ImportRecipeUrl } from '../../lib/github-import-queue';
 import type { RecommendedMeal } from '../../lib/meal-week-optimizer';
 import type { GitHubConnectInput, SyncPresentation } from '../../lib/sync-types';
 import { MEAL_TYPES } from '../../lib/types';
@@ -59,7 +60,7 @@ function currentWeekEntries(entries: MealPlanEntry[]): MealPlanEntry[] {
 
 export function SavorApp({
   data, setData, connection, hasGitHubToken, sync, startInSettings,
-  onConnectGitHub, onDisconnectGitHub, onSyncNow,
+  onConnectGitHub, onDisconnectGitHub, onSyncNow, onImportRecipeUrl,
 }: {
   data: BootstrapData;
   setData: Dispatch<SetStateAction<BootstrapData>>;
@@ -70,6 +71,7 @@ export function SavorApp({
   onConnectGitHub: (input: GitHubConnectInput) => Promise<void>;
   onDisconnectGitHub: () => Promise<void>;
   onSyncNow: () => Promise<void>;
+  onImportRecipeUrl: ImportRecipeUrl;
 }) {
   const [view, setView] = useState<View>('home');
   const [selectedRecipe, setSelectedRecipe] = useState<Recipe | null>(null);
@@ -492,7 +494,12 @@ export function SavorApp({
       ) : null}
 
       {addOpen ? (
-        <AddRecipeSheet initialRecipe={editingRecipe} onClose={() => { setAddOpen(false); setEditingRecipe(null); }} onSave={saveRecipe} />
+        <AddRecipeSheet
+          initialRecipe={editingRecipe}
+          onClose={() => { setAddOpen(false); setEditingRecipe(null); }}
+          onSave={saveRecipe}
+          onImportRecipeUrl={onImportRecipeUrl}
+        />
       ) : null}
 
       {cookingFresh ? <CookingMode recipe={cookingFresh} onClose={() => setCookingRecipe(null)} onFinish={() => markCooked(cookingFresh)} showToast={showToast} /> : null}

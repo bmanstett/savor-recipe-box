@@ -1,0 +1,12 @@
+{
+  "code": 200,
+  "status": 20000,
+  "data": {
+    "title": "Avery Kitchen on Instagram",
+    "description": "86 likes, 2 comments - avery.kitchen on August 21, 2026: \"Sunday dinner from my site. Full recipe: https://recipes.example.com/lemon-chicken\".",
+    "content": "[avery.kitchen](https://www.instagram.com/avery.kitchen/) • 1d\n\nSunday dinner from my site. Full recipe: https://recipes.example.com/lemon-chicken",
+    "metadata": {
+      "og:description": "86 likes, 2 comments - avery.kitchen on August 21, 2026: \"Sunday dinner from my site. Full recipe: https://recipes.example.com/lemon-chicken\"."
+    }
+  }
+}

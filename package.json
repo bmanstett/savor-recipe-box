@@ -12,6 +12,7 @@
     "preview": "vite preview",
     "lint": "tsc --noEmit",
     "test:domain": "node --experimental-strip-types scripts/domain-tests.ts",
+    "test:import": "node scripts/process-recipe-imports.test.mjs",
     "test:pwa": "node scripts/verify-pwa-build.mjs"
   },
   "dependencies": {

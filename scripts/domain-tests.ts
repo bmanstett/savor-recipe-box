@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { aggregateRecipes, createBlankDraft, draftToRecipe, formatRational, parseIngredientLine } from '../lib/domain.ts';
+import { aggregateRecipes, createBlankDraft, draftToRecipe, formatRational, parseIngredientLine, parseRecipeText } from '../lib/domain.ts';
 import { buildSundayPrepRecommendation, optimizeMealWeek } from '../lib/meal-week-optimizer.ts';
 import { formatSkylightWeek, isValidSkylightDeviceEmail, normalizeSkylightEmailApp, skylightEmailDraftUrl, skylightGmailComposeUrl, skylightMailto } from '../lib/skylight.ts';
 import { parseRecipeSourceUrl } from '../lib/recipe-source.ts';
@@ -182,6 +182,15 @@ function itemFor(items: ReturnType<typeof aggregateRecipes>, normalized: string,
 }
 
 {
+  const imported = parseRecipeText(`Creamy Lemon Chicken\nA quick weeknight dinner the whole family loves.\nINGREDIENTS 👇 • 2 chicken breasts • 1 tbsp olive oil • ½ cup cream • 1 lemon, juiced\nMETHOD 👇 1️⃣ Season and brown the chicken. 2️⃣ Add the cream and lemon, then simmer for 10 minutes.\n#weeknightdinner #chickenrecipe`);
+  assert.equal(imported.draft.title, 'Creamy Lemon Chicken');
+  assert.match(imported.draft.description, /quick weeknight dinner/i);
+  assert.equal(imported.draft.ingredients.length, 4, 'emoji and inline Instagram bullets should become ingredient lines');
+  assert.equal(imported.draft.instructions.length, 2, 'keycap-numbered Instagram steps should become instructions');
+  assert.equal(imported.draft.instructions.some((step) => step.text.includes('#weeknightdinner')), false, 'social hashtags should not become cooking steps');
+}
+
+{
   const seafood = recipe('fresh-seafood', 'Fresh seafood', ['1 lb salmon']);
   const greens = recipe('fresh-greens', 'Fresh greens', ['4 cups baby spinach']);
   const meat = recipe('fresh-meat', 'Fresh meat', ['1 lb chicken breasts']);
@@ -348,4 +357,4 @@ function itemFor(items: ReturnType<typeof aggregateRecipes>, normalized: string,
   assert.match(seafoodWarning?.recommendation ?? '', /keep it frozen/i);
 }
 
-console.log('Domain tests passed: 21 scenarios');
+console.log('Domain tests passed: 22 scenarios');

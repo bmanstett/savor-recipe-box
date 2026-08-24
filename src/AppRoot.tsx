@@ -13,10 +13,11 @@ import {
   type StoredGitHubConnection,
   type Tombstones,
 } from '../lib/client-cache';
+import { queueGitHubRecipeImport, type GitHubImportOptions } from '../lib/github-import-queue';
 import { GitHubSyncError, syncGitHubSnapshot, validateGitHubConnection } from '../lib/github-sync';
 import { SEED_GROCERY_ITEMS, SEED_MEAL_PLAN, SEED_PREFERENCES, SEED_RECIPES } from '../lib/seed';
 import type { GitHubConnectInput, SyncPresentation } from '../lib/sync-types';
-import type { BootstrapData } from '../lib/types';
+import type { BootstrapData, ImportResult } from '../lib/types';
 
 function newDeviceId(): string {
   return `device_${crypto.randomUUID()}`;
@@ -328,6 +329,10 @@ export function AppRoot() {
     if (current && connection) await runSync(current, connection, token);
   }, [connection, runSync, token]);
 
+  const importRecipeUrl = useCallback((url: string, options?: GitHubImportOptions): Promise<ImportResult> => (
+    queueGitHubRecipeImport(connection, token, url, options)
+  ), [connection, token]);
+
   useEffect(() => {
     if (!snapshot || !connection || !token) return;
     if (!snapshot.dirty && connection.lastSyncAt) {
@@ -378,6 +383,7 @@ export function AppRoot() {
       onConnectGitHub={connect}
       onDisconnectGitHub={disconnect}
       onSyncNow={syncNow}
+      onImportRecipeUrl={importRecipeUrl}
     />
   );
 }

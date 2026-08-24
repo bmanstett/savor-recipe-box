@@ -24,6 +24,8 @@ Because Savor is a static web app, the saved token is readable by code running o
 
 GitHub stores synchronized state at `savor/v1/state.json` and compressed photos under `savor/v1/media/` in the private data repository.
 
+Link imports also require `.github/workflows/savor-recipe-import.yml` in that private repository. Copy [`scripts/savor-data-recipe-import.yml.example`](scripts/savor-data-recipe-import.yml.example), replace its importer placeholder with the full commit SHA being deployed, and change `main` if the private repository uses another default branch. The workflow runs with `contents: write` only and invokes the importer from this public app repository at that pinned commit. The device token still needs only **Contents: read and write**; it does not need Actions, Workflows, or access to the public app repository.
+
 ## Skylight and grocery printing
 
 - Add the Calendar's `@ourskylight.com` device email in **Household settings → Skylight Sidekick**. From the meal planner, **Send week to Skylight** opens a prepared email draft; the user reviews and sends it. Gmail is the per-device default, and the review dialog or household settings can switch future drafts to the device's default mail app. Native menu imports require Skylight Calendar Plus.
@@ -38,6 +40,13 @@ GitHub stores synchronized state at `savor/v1/state.json` and compressed photos 
 
 Freshness guidance is intentionally conservative. Package dates, refrigerator temperature, visible spoilage, and official food-safety guidance always take precedence over the optimizer.
 
-## Instagram links
+## Recipe and Instagram link imports
 
-The GitHub Pages app does not scrape Instagram or place Meta credentials in the public browser bundle. For an Instagram reel, Savor keeps an optional source link and asks the user to paste the caption or recipe text, then parses only that pasted text into an editable draft.
+Because GitHub Pages is static, Savor uses the private data repository as an asynchronous import queue. The app writes a small request under `savor/v1/imports/requests/`, a private GitHub Action processes it, and the app polls `savor/v1/imports/results/` before opening the normal editable review screen.
+
+- Ordinary recipe pages are read directly by the Action. Schema.org `Recipe` JSON-LD is preferred; a conservative text parser is used only when structured data is absent.
+- For a public Instagram link, the Action uses Jina Reader to inspect public page text, creator attribution, and a bounded set of relevant creator/recipe links. The submitted public URL is sent to that reader with its do-not-track option; the GitHub token and household data are never sent there.
+- Savor does not sign into Instagram, bypass private or blocked content, read unrelated posts, or claim to transcribe reel video/audio. When a recipe exists only in the video, a private post, or an inaccessible comment, the app falls back to a pasted caption/creator comment or user-provided screenshots.
+- Imported fields are never silently saved. Title, ingredients, instructions, attribution, and every source checked remain visible and user-correctable first.
+
+Import request and result files live in the private repository and therefore remain in its Git history. Remove that repository if the household wants to erase its complete private import history.

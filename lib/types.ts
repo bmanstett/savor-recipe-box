@@ -54,6 +54,14 @@ export interface Attachment {
   captureDate: string;
 }
 
+export type RecipeSourceLinkKind = 'instagram-post' | 'creator-profile' | 'recipe-page';
+
+export interface RecipeSourceLink {
+  kind: RecipeSourceLinkKind;
+  url: string;
+  label: string;
+}
+
 export interface Recipe {
   id: string;
   title: string;
@@ -62,6 +70,7 @@ export interface Recipe {
   sourceType: SourceType;
   sourceURL: string | null;
   sourceName: string | null;
+  sourceLinks?: RecipeSourceLink[];
   author: string | null;
   servings: number | null;
   prepTime: number | null;
@@ -142,5 +151,7 @@ export interface BootstrapData {
 export interface ImportResult {
   draft: RecipeDraft;
   warnings: string[];
-  provider: 'schema-org' | 'text-parser' | 'manual-photo';
+  provider: 'schema-org' | 'text-parser' | 'manual-photo' | 'instagram-caption' | 'linked-recipe' | 'public-reader';
+  sourcesChecked?: RecipeSourceLink[];
+  completedAt?: string;
 }

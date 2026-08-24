@@ -1,0 +1,15 @@
+{
+  "code": 200,
+  "status": 20000,
+  "data": {
+    "title": "Avery Kitchen on Instagram: Easy Tomato Pasta",
+    "description": "1,234 likes, 18 comments - avery.kitchen on August 20, 2026: \"Easy Tomato Pasta\nServes 4\n\nIngredients:\n• 12 oz spaghetti\n• 2 tbsp olive oil\n• 3 cloves garlic, minced\n• 2 cups crushed tomatoes\n• salt to taste\n\nInstructions:\n1. Boil the spaghetti until al dente.\n2. Cook garlic in oil for 1 minute.\n3. Add tomatoes and simmer for 15 minutes.\n4. Toss with pasta and serve.\n\nFull notes: https://recipes.example.com/tomato-pasta\".",
+    "url": "https://www.instagram.com/reel/ABC123/",
+    "content": "[avery.kitchen](https://www.instagram.com/avery.kitchen/) • 2d\n\nEasy Tomato Pasta\n\nFull notes: https://recipes.example.com/tomato-pasta\n\n[another.user](https://www.instagram.com/another.user/) Looks delicious!",
+    "metadata": {
+      "og:title": "Avery Kitchen on Instagram: Easy Tomato Pasta",
+      "og:description": "1,234 likes, 18 comments - avery.kitchen on August 20, 2026: \"Easy Tomato Pasta\nServes 4\n\nIngredients:\n• 12 oz spaghetti\n• 2 tbsp olive oil\n• 3 cloves garlic, minced\n• 2 cups crushed tomatoes\n• salt to taste\n\nInstructions:\n1. Boil the spaghetti until al dente.\n2. Cook garlic in oil for 1 minute.\n3. Add tomatoes and simmer for 15 minutes.\n4. Toss with pasta and serve.\n\nFull notes: https://recipes.example.com/tomato-pasta\".",
+      "og:image": "https://images.example.com/tomato-pasta-cover.jpg"
+    }
+  }
+}

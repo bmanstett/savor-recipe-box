@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { ChangeEvent, FormEvent, useEffect, useRef, useState } from 'react';
 import { createBlankDraft, makeId, parseIngredientLine, parseRecipeText } from '../../lib/domain';
+import type { ImportRecipeUrl } from '../../lib/github-import-queue';
 import { prepareRecipeImage } from '../../lib/image-processing';
 import { parseRecipeSourceUrl } from '../../lib/recipe-source';
 import type { ImportResult, Instruction, Recipe, RecipeDraft } from '../../lib/types';
@@ -39,10 +40,11 @@ function instructionsFromText(value: string): Instruction[] {
   });
 }
 
-export function AddRecipeSheet({ initialRecipe, onClose, onSave }: {
+export function AddRecipeSheet({ initialRecipe, onClose, onSave, onImportRecipeUrl }: {
   initialRecipe: Recipe | null;
   onClose: () => void;
   onSave: (draft: RecipeDraft) => Promise<void>;
+  onImportRecipeUrl: ImportRecipeUrl;
 }) {
   const [phase, setPhase] = useState<'source' | 'review'>(initialRecipe ? 'review' : 'source');
   const [draft, setDraft] = useState<RecipeDraft>(() => initialRecipe ? recipeToDraft(initialRecipe) : createBlankDraft());
@@ -54,11 +56,13 @@ export function AddRecipeSheet({ initialRecipe, onClose, onSave }: {
   const [instagramSourceURL, setInstagramSourceURL] = useState<string | null>(null);
   const [keepInstagramSource, setKeepInstagramSource] = useState(true);
   const [processing, setProcessing] = useState(false);
+  const [importStage, setImportStage] = useState<'queued' | 'reading' | 'structuring' | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<{ message: string; recovery?: string[] } | null>(null);
   const [ingredientText, setIngredientText] = useState(() => draft.ingredients.map((item) => item.rawText).join('\n'));
   const [instructionText, setInstructionText] = useState(() => draft.instructions.map((item) => `${item.stepNumber}. ${item.text}`).join('\n'));
   const fileRef = useRef<HTMLInputElement>(null);
+  const importAbortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     const handleKey = (event: KeyboardEvent) => { if (event.key === 'Escape' && !processing && !saving) onClose(); };
@@ -66,12 +70,18 @@ export function AddRecipeSheet({ initialRecipe, onClose, onSave }: {
     return () => window.removeEventListener('keydown', handleKey);
   }, [onClose, processing, saving]);
 
+  useEffect(() => () => importAbortRef.current?.abort(), []);
+
   function openReview(result: ImportResult | { draft: RecipeDraft; warnings: string[]; provider: 'manual' }) {
-    setDraft(result.draft);
+    const sourceLinks = 'sourcesChecked' in result ? result.sourcesChecked : undefined;
+    const importedDraft = sourceLinks?.length
+      ? { ...result.draft, sourceLinks: sourceLinks.map((source) => ({ ...source })) }
+      : result.draft;
+    setDraft(importedDraft);
     setWarnings(result.warnings);
     setProvider(result.provider);
-    setIngredientText(result.draft.ingredients.map((item) => item.rawText).join('\n'));
-    setInstructionText(result.draft.instructions.map((item) => `${item.stepNumber}. ${item.text}`).join('\n'));
+    setIngredientText(importedDraft.ingredients.map((item) => item.rawText).join('\n'));
+    setInstructionText(importedDraft.instructions.map((item) => `${item.stepNumber}. ${item.text}`).join('\n'));
     setPhase('review');
     setMode('choose');
     setError(null);
@@ -87,22 +97,40 @@ export function AddRecipeSheet({ initialRecipe, onClose, onSave }: {
       if (source.kind === 'instagram') {
         setInstagramSourceURL(source.href);
         setKeepInstagramSource(true);
-        setPastedText('');
-        setMode('instagram');
-        return;
       }
-      const next = createBlankDraft('url');
-      next.sourceURL = source.href;
-      next.sourceName = source.sourceName;
-      openReview({
-        draft: next,
-        provider: 'manual',
-        warnings: ['Source link saved. GitHub Pages cannot privately fetch arbitrary recipe sites, so paste or enter the recipe details before saving.'],
+      const controller = new AbortController();
+      importAbortRef.current?.abort();
+      importAbortRef.current = controller;
+      const result = await onImportRecipeUrl(source.href, {
+        signal: controller.signal,
+        onProgress: (stage) => setImportStage(stage),
       });
-    } catch {
-      setError({ message: 'Enter a complete public recipe link.', recovery: ['Paste recipe text', 'Create manually'] });
+      const nextDraft = { ...result.draft };
+      nextDraft.sourceType = 'url';
+      nextDraft.sourceURL ||= source.href;
+      nextDraft.sourceName ||= source.sourceName;
+      openReview({ ...result, draft: nextDraft });
+    } catch (caught) {
+      if (caught instanceof DOMException && caught.name === 'AbortError') return;
+      const source = parseRecipeSourceUrl(url);
+      const message = caught instanceof Error && caught.message !== 'unsupported'
+        ? caught.message
+        : 'Enter a complete public recipe link.';
+      setError({
+        message,
+        recovery: source?.kind === 'instagram'
+          ? ['Paste the caption or creator comment', 'Attach recipe screenshots', 'Create manually']
+          : ['Paste recipe text', 'Create manually'],
+      });
+      if (source?.kind === 'instagram') {
+        setMode('instagram');
+      }
     }
-    finally { setProcessing(false); }
+    finally {
+      importAbortRef.current = null;
+      setImportStage(null);
+      setProcessing(false);
+    }
   }
 
   async function importText(event: FormEvent) {
@@ -115,7 +143,8 @@ export function AddRecipeSheet({ initialRecipe, onClose, onSave }: {
         result.draft.sourceType = 'url';
         result.draft.sourceURL = instagramSourceURL;
         result.draft.sourceName = 'Instagram';
-        result.warnings.unshift('Instagram source link retained. Only the text you pasted was parsed; Savor did not download or inspect the reel.');
+        result.draft.sourceLinks = [{ kind: 'instagram-post', url: instagramSourceURL, label: 'Original Instagram post' }];
+        result.warnings.unshift('Instagram source link retained. The text you pasted was structured on this device.');
       }
       openReview({ ...result, provider: 'text-parser' });
     } catch {
@@ -188,7 +217,7 @@ export function AddRecipeSheet({ initialRecipe, onClose, onSave }: {
       <section className={phase === 'review' ? 'add-sheet review-sheet' : 'add-sheet'} role="dialog" aria-modal="true" aria-labelledby="add-recipe-title">
         <header className="sheet-header">
           <div>
-            {mode !== 'choose' || phase === 'review' ? <button className="sheet-back" type="button" onClick={() => phase === 'review' && !initialRecipe ? setPhase('source') : setMode('choose')}><ArrowLeft size={17} />Back</button> : <p className="eyebrow">Universal capture</p>}
+            {mode !== 'choose' || phase === 'review' ? <button className="sheet-back" type="button" disabled={processing || saving} onClick={() => phase === 'review' && !initialRecipe ? setPhase('source') : setMode('choose')}><ArrowLeft size={17} />Back</button> : <p className="eyebrow">Universal capture</p>}
             <h1 id="add-recipe-title">{phase === 'review' ? (initialRecipe ? 'Edit recipe' : 'Review recipe') : mode === 'link' ? 'Import from a link' : mode === 'instagram' ? 'Import from Instagram' : mode === 'paste' ? 'Paste recipe text' : 'Add a recipe'}</h1>
             <p>{phase === 'review' ? 'Everything stays structured and user-correctable.' : 'Choose the easiest way to bring it into your cookbook.'}</p>
           </div>
@@ -199,7 +228,7 @@ export function AddRecipeSheet({ initialRecipe, onClose, onSave }: {
           {phase === 'source' && mode === 'choose' ? (
             <div className="capture-options">
               {error ? <div style={{ gridColumn: '1 / -1' }}><ErrorBox error={error} onPaste={() => { setError(null); setMode('paste'); }} onManual={startManual} /></div> : null}
-              <button type="button" onClick={() => setMode('link')}><span className="capture-icon"><Link2 size={21} /></span><span><strong>Start from a link</strong><small>Preserve the source, then add its details</small></span><ArrowLeft className="capture-arrow" size={16} /></button>
+              <button type="button" onClick={() => setMode('link')}><span className="capture-icon"><Link2 size={21} /></span><span><strong>Start from a link</strong><small>Extract recipe sites and public Instagram posts</small></span><ArrowLeft className="capture-arrow" size={16} /></button>
               <button type="button" onClick={() => fileRef.current?.click()}><span className="capture-icon"><ScanLine size={21} /></span><span><strong>Photo or screenshot</strong><small>Preserve the original and transcribe it</small></span><ArrowLeft className="capture-arrow" size={16} /></button>
               <button type="button" onClick={() => setMode('paste')}><span className="capture-icon"><ClipboardPaste size={21} /></span><span><strong>Paste recipe text</strong><small>Automatically structures ingredients and steps</small></span><ArrowLeft className="capture-arrow" size={16} /></button>
               <button type="button" onClick={startManual}><span className="capture-icon"><PenLine size={21} /></span><span><strong>Create manually</strong><small>Fast keyboard-first recipe entry</small></span><ArrowLeft className="capture-arrow" size={16} /></button>
@@ -212,9 +241,11 @@ export function AddRecipeSheet({ initialRecipe, onClose, onSave }: {
             <form className="capture-form" onSubmit={importLink}>
               <div className="capture-form-icon"><Link2 size={24} /></div>
               <label className="field-label">Recipe URL<input autoFocus type="url" inputMode="url" placeholder="https://example.com/favorite-recipe" value={url} onChange={(event) => setUrl(event.target.value)} /></label>
-              <p className="field-help">A static GitHub Pages app cannot fetch most recipe sites without exposing a proxy. Savor will preserve the source link and let you enter or paste the details safely.</p>
+              <p className="field-help">Savor queues the public link in your private GitHub data repository. A private GitHub Action checks structured recipe data, public post text, the creator profile, and relevant recipe links.</p>
+              <aside className="privacy-note"><Instagram size={17} /><p><strong>Public links only.</strong> Instagram page text is read by Jina Reader from the GitHub Action. Savor does not sign into Instagram, bypass private posts, or send your GitHub token anywhere except GitHub.</p></aside>
               {error ? <ErrorBox error={error} onPaste={() => { setError(null); setMode('paste'); }} onManual={startManual} /> : null}
-              <button className="button button-primary full-button" type="submit" disabled={processing || !url.trim()}>{processing ? <><LoaderCircle className="spin" size={17} />Saving source…</> : 'Continue with source link'}</button>
+              <button className="button button-primary full-button" type="submit" disabled={processing || !url.trim()}>{processing ? <><LoaderCircle className="spin" size={17} />{importStage === 'queued' ? 'Queued in GitHub…' : importStage === 'structuring' ? 'Structuring recipe…' : 'Reading sources…'}</> : 'Extract recipe'}</button>
+              {processing ? <div className="import-progress" role="status" aria-live="polite"><span>{importStage === 'queued' ? 'Sending the request to your private repository.' : importStage === 'structuring' ? 'The result is ready; checking its recipe fields.' : 'Waiting for the private GitHub Action to read the public sources.'}</span><button className="button button-ghost" type="button" onClick={() => importAbortRef.current?.abort()}>Cancel import</button></div> : null}
             </form>
           ) : null}
 
@@ -226,8 +257,8 @@ export function AddRecipeSheet({ initialRecipe, onClose, onSave }: {
                   <div className="capture-error" role="status">
                     <AlertCircle size={18} />
                     <div>
-                      <strong>This static app cannot extract reel content directly</strong>
-                      <p>It is not simply an offline issue: supported Instagram access requires live Meta metadata or API credentials. Savor does not scrape Instagram, sign in as you, or claim that the reel was imported.</p>
+                      <strong>Automatic extraction needs a little help</strong>
+                      <p>Private or blocked posts—and recipes shown only in reel video or audio—cannot be read reliably. Paste the caption, the creator’s recipe comment, or attach screenshots and Savor will structure what you provide.</p>
                       <div>{instagramSourceURL ? <a className="button button-secondary" href={instagramSourceURL} target="_blank" rel="noreferrer">Open on Instagram<ExternalLink size={13} /></a> : null}</div>
                     </div>
                   </div>
@@ -257,7 +288,8 @@ export function AddRecipeSheet({ initialRecipe, onClose, onSave }: {
                 {draft.attachments.length ? <div className="attachment-strip">{draft.attachments.map((attachment) => <img alt="Original recipe attachment" src={attachment.url} key={attachment.id} />)}</div> : null}
                 <button className="button button-secondary full-button" type="button" onClick={() => fileRef.current?.click()}><Upload size={16} />{draft.attachments.length ? 'Add another page' : 'Attach original image'}</button>
                 <input ref={fileRef} className="sr-only" type="file" accept="image/jpeg,image/png,image/webp" multiple onChange={uploadPhotos} />
-                <div className="review-status"><CheckCircle2 size={17} /><div><strong>{provider === 'schema-org' ? 'Structured page data' : provider === 'text-parser' ? 'Parsed recipe text' : provider === 'manual-photo' ? 'Original image preserved' : 'Manual recipe'}</strong><small>{reviewCount ? `${reviewCount} ingredient${reviewCount === 1 ? '' : 's'} need review` : 'Ready for your review'}</small></div></div>
+                <div className="review-status"><CheckCircle2 size={17} /><div><strong>{provider === 'schema-org' ? 'Structured page data' : provider === 'linked-recipe' ? 'Linked recipe page' : provider === 'instagram-caption' ? 'Public Instagram details' : provider === 'public-reader' ? 'Public page details' : provider === 'text-parser' ? 'Parsed recipe text' : provider === 'manual-photo' ? 'Original image preserved' : 'Manual recipe'}</strong><small>{reviewCount ? `${reviewCount} ingredient${reviewCount === 1 ? '' : 's'} need review` : 'Ready for your review'}</small></div></div>
+                {draft.sourceLinks?.length ? <div className="import-sources"><strong>Sources attempted</strong>{draft.sourceLinks.map((source) => <a key={`${source.kind}:${source.url}`} href={source.url} target="_blank" rel="noreferrer">{source.label}<ExternalLink size={12} /></a>)}</div> : null}
               </aside>
 
               <div className="review-form">
@@ -278,7 +310,7 @@ export function AddRecipeSheet({ initialRecipe, onClose, onSave }: {
                 <div className="form-section">
                   <div className="form-section-heading"><span>02</span><div><h2>Ingredients</h2><p>One ingredient per line. Use a line ending in “:” for a section.</p></div></div>
                   <label className="field-label wide-field">Ingredient lines<textarea className="structured-textarea" rows={Math.max(7, ingredientText.split('\n').length + 1)} value={ingredientText} onChange={(event) => setIngredientText(event.target.value)} placeholder={'Sauce:\n2 tbsp olive oil\n1 medium onion, diced\n½ cup cream'} /></label>
-                  {reviewCount ? <p className="confidence-note"><AlertCircle size={14} />{reviewCount} line{reviewCount === 1 ? '' : 's'} have an uncertain or missing quantity. Savor will keep them separate in grocery aggregation until corrected.</p> : null}
+                  {reviewCount ? <p className="confidence-note"><AlertCircle size={14} />{reviewCount} line{reviewCount === 1 ? ' has' : 's have'} an uncertain or missing quantity. Savor will keep them separate in grocery aggregation until corrected.</p> : null}
                 </div>
 
                 <div className="form-section">
@@ -291,6 +323,7 @@ export function AddRecipeSheet({ initialRecipe, onClose, onSave }: {
                   <div className="field-grid two-fields">
                     <label className="field-label">Tags<input value={draft.tags.join(', ')} onChange={(event) => update('tags', event.target.value.split(',').map((tag) => tag.trim()).filter(Boolean))} placeholder="Weeknight, favorite" /></label>
                     <label className="field-label">Source name<input value={draft.sourceName ?? ''} onChange={(event) => update('sourceName', event.target.value || null)} placeholder="Grandma’s recipe card" /></label>
+                    <label className="field-label">Creator or author<input value={draft.author ?? ''} onChange={(event) => update('author', event.target.value || null)} placeholder="@creator or recipe author" /></label>
                   </div>
                   <label className="field-label wide-field">Notes<textarea rows={3} value={draft.notes} onChange={(event) => update('notes', event.target.value)} placeholder="The details your household will want next time" /></label>
                 </div>

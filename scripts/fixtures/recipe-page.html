@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <title>Unrelated page title</title>
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          { "@type": "Organization", "name": "Fixture Kitchen" },
+          {
+            "@type": ["Thing", "Recipe"],
+            "name": "Lemony Sheet-Pan Chicken",
+            "description": "A bright &amp; simple weeknight dinner.",
+            "image": { "@type": "ImageObject", "url": "https://images.example.com/chicken.jpg" },
+            "author": { "@type": "Person", "name": "Avery Cook" },
+            "recipeYield": "6 servings",
+            "prepTime": "PT20M",
+            "cookTime": "PT1H5M",
+            "totalTime": "PT1H25M",
+            "recipeCuisine": ["Mediterranean"],
+            "recipeCategory": "Dinner, Main course",
+            "keywords": "chicken, lemon, sheet pan",
+            "recipeIngredient": [
+              "2 lb boneless chicken thighs",
+              "1 1/2 cups baby potatoes",
+              "2 tbsp olive oil",
+              "1 lemon, sliced"
+            ],
+            "recipeInstructions": [
+              {
+                "@type": "HowToSection",
+                "name": "Prepare",
+                "itemListElement": [
+                  { "@type": "HowToStep", "text": "Heat the oven to 425°F." },
+                  { "@type": "HowToStep", "text": "Toss the chicken and potatoes with oil." }
+                ]
+              },
+              { "@type": "HowToStep", "text": "Roast for 35 minutes, then add lemon." }
+            ]
+          }
+        ]
+      }
+    </script>
+  </head>
+  <body><p>This navigation text must not become the recipe.</p></body>
+</html>

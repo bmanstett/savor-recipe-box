@@ -245,9 +245,43 @@ function parseMinutes(text: string, label: string): number | null {
   return match ? Number(match[1]) : null;
 }
 
+function normalizeRecipeCapture(text: string): string[] {
+  const expanded = text
+    .replace(/\r/g, '')
+    .replace(/[\u00a0\u2007\u202f]/g, ' ')
+    .replace(/([1-9])\uFE0F?\u20E3/g, '\n$1. ')
+    .replace(/\s*[•●▪▫]\s*/g, '\n• ')
+    .replace(/\s+(?=(?:ingredients?|what you(?:'|’)ll need|directions?|instructions?|method|preparation)\s*(?:[:：]|[👇⬇]))/gi, '\n')
+    .replace(/\s+(?=\d{1,2}[.)]\s+[A-Za-z])/g, '\n');
+  return expanded
+    .split('\n')
+    .map((line) => line.replace(/\s+/g, ' ').trim())
+    .filter(Boolean);
+}
+
+function captureHeading(line: string): string {
+  return line
+    .replace(/^[-–—•●▪▫\s]+/, '')
+    .replace(/[:：]\s*$/, '')
+    .replace(/[^A-Za-z'’ &]+$/u, '')
+    .trim();
+}
+
+function stripCaptureMarker(line: string): string {
+  return line
+    .replace(/^\s*(?:[-–—•●▪▫]|\d+\s*[.)]|step\s+\d+\s*[:.)-])\s*/i, '')
+    .replace(/^[^\p{L}\p{N}¼⅓½⅔¾⅛⅜⅝⅞]+/u, '')
+    .trim();
+}
+
+function isSocialCaptionTail(line: string): boolean {
+  return /^#|^(?:save|share|follow|comment|like|credit|video)\b/i.test(line)
+    || /^(?:more posts from|view all \d+ comments?|log in|sign up)\b/i.test(line);
+}
+
 export function parseRecipeText(text: string): { draft: RecipeDraft; warnings: string[] } {
-  const source = text.replace(/\r/g, '').slice(0, 30_000);
-  const lines = source.split('\n').map((line) => line.trim()).filter(Boolean);
+  const source = text.slice(0, 30_000);
+  const lines = normalizeRecipeCapture(source);
   const draft = emptyDraft('pasted-text');
   draft.title = lines[0] || 'Untitled recipe';
   const wholeText = lines.join('\n');
@@ -260,27 +294,34 @@ export function parseRecipeText(text: string): { draft: RecipeDraft; warnings: s
   let mode: 'meta' | 'ingredients' | 'instructions' = 'meta';
   let ingredientSection: string | null = null;
   let instructionSection: string | null = null;
+  const descriptionLines: string[] = [];
   for (const line of lines.slice(1)) {
-    if (/^(ingredients?|what you(?:'|’)ll need)$/i.test(line.replace(/:$/, ''))) { mode = 'ingredients'; continue; }
-    if (/^(directions?|instructions?|method|preparation)$/i.test(line.replace(/:$/, ''))) { mode = 'instructions'; continue; }
+    const heading = captureHeading(line);
+    if (/^(ingredients?|what you(?:'|’)ll need)$/i.test(heading)) { mode = 'ingredients'; continue; }
+    if (/^(directions?|instructions?|method|preparation)$/i.test(heading)) { mode = 'instructions'; continue; }
     if (/^(serves?|prep|cook|total)\b/i.test(line)) continue;
-    if (mode === 'meta' && /^(\d+\s+\d+\/\d+|\d+\/\d+|\d+[¼⅓½⅔¾⅛⅜⅝⅞]?|[¼⅓½⅔¾⅛⅜⅝⅞])\s/.test(line)) mode = 'ingredients';
-    if (mode === 'ingredients' && /^\d+[.)]\s+/.test(line)) mode = 'instructions';
+    const cleanMarker = stripCaptureMarker(line);
+    if (mode === 'meta' && /^(\d+\s+\d+\/\d+|\d+\/\d+|\d+[¼⅓½⅔¾⅛⅜⅝⅞]?|[¼⅓½⅔¾⅛⅜⅝⅞])\s/.test(cleanMarker)) mode = 'ingredients';
+    if (mode === 'ingredients' && /^(?:\d+\s*[.)]|step\s+\d+\b)/i.test(line)) mode = 'instructions';
+    if (mode !== 'meta' && isSocialCaptionTail(line)) break;
 
     if (mode === 'ingredients') {
       const looksLikeSection = /:$/.test(line) && !/^\d/.test(line);
       if (looksLikeSection) { ingredientSection = line.replace(/:$/, ''); continue; }
-      draft.ingredients.push(parseIngredientLine(line.replace(/^[-•]\s*/, ''), ingredientSection));
+      if (cleanMarker) draft.ingredients.push(parseIngredientLine(cleanMarker, ingredientSection));
     } else if (mode === 'instructions') {
-      const clean = line.replace(/^\d+[.)]\s*/, '').replace(/^[-•]\s*/, '');
+      const clean = cleanMarker;
       if (/^[A-Za-z][A-Za-z &]+:$/.test(clean)) { instructionSection = clean.replace(/:$/, ''); continue; }
-      draft.instructions.push({
+      if (clean) draft.instructions.push({
         id: makeId('step'), stepNumber: draft.instructions.length + 1,
         section: instructionSection, text: clean,
         timerMinutes: Number(clean.match(/\b(\d+)\s+minutes?\b/i)?.[1] ?? '') || null,
       });
+    } else if (!isSocialCaptionTail(line) && !/^@\w+\b/.test(line)) {
+      descriptionLines.push(line);
     }
   }
+  draft.description = descriptionLines.join(' ').slice(0, 2_000);
 
   const warnings: string[] = [];
   if (!draft.ingredients.length) warnings.push('No ingredient lines were confidently detected.');

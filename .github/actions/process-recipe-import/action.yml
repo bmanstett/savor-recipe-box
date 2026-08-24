@@ -1,0 +1,48 @@
+name: Process Savor recipe import requests
+description: Resolve pending public recipe URL requests into app-consumable RecipeDraft results.
+
+inputs:
+  root:
+    description: Root of the checked-out private savor-data repository.
+    required: false
+    default: .
+  max-jobs:
+    description: Maximum number of pending requests to process in this run (1-100).
+    required: false
+    default: '10'
+  jina-api-key:
+    description: Optional Jina Reader API key. Public no-key access is supported.
+    required: false
+
+outputs:
+  processed:
+    description: Number of result files created.
+    value: ${{ steps.process.outputs.processed }}
+  success:
+    description: Number of complete recipe results.
+    value: ${{ steps.process.outputs.success }}
+  partial:
+    description: Number of partial recipe results.
+    value: ${{ steps.process.outputs.partial }}
+  failed:
+    description: Number of error results.
+    value: ${{ steps.process.outputs.failed }}
+  results:
+    description: JSON array of result paths modified in the working tree.
+    value: ${{ steps.process.outputs.results }}
+
+runs:
+  using: composite
+  steps:
+    - id: process
+      name: Process pending recipe imports
+      shell: bash
+      working-directory: ${{ github.workspace }}
+      env:
+        INPUT_ROOT: ${{ inputs.root }}
+        INPUT_MAX_JOBS: ${{ inputs.max-jobs }}
+        JINA_API_KEY: ${{ inputs.jina-api-key }}
+      run: |
+        node "${{ github.action_path }}/../../../scripts/process-recipe-imports.mjs" \
+          --root "$INPUT_ROOT" \
+          --max-jobs "$INPUT_MAX_JOBS"
