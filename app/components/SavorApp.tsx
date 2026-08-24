@@ -91,6 +91,13 @@ export function SavorApp({
     if (startInSettings) setSettingsOpen(true);
   }, [startInSettings]);
 
+  useEffect(() => {
+    if (!addOpen && !settingsOpen && !selectedRecipe && !cookingRecipe && !mobileMenuOpen) return undefined;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = previousOverflow; };
+  }, [addOpen, cookingRecipe, mobileMenuOpen, selectedRecipe, settingsOpen]);
+
   const showToast = useCallback((next: ToastState) => {
     setToast(next);
     window.setTimeout(() => setToast((current) => current === next ? null : current), 4_800);

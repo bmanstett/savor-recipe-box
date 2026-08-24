@@ -1,6 +1,6 @@
 'use client';
 
-import { Check, ChevronDown, Clock3, Info, Plus, Printer, RefreshCw, RotateCcw, ShoppingBasket, Trash2 } from 'lucide-react';
+import { Check, ChevronDown, Clock3, Info, Plus, Printer, RefreshCw, RotateCcw, ShoppingBasket, Trash2, X } from 'lucide-react';
 import { FormEvent, useMemo, useState } from 'react';
 import { formatRational } from '../../lib/domain';
 import type { GroceryCategory, GroceryItem, HouseholdPreferences } from '../../lib/types';
@@ -120,11 +120,12 @@ export function GroceryView({
                       <details className="grocery-details">
                         <summary aria-label={`Details for ${item.ingredientName}`}><ChevronDown size={17} /></summary>
                         <div className="provenance-popover">
-                          <div className="popover-heading"><strong>Why it’s on the list</strong><button aria-label={`Delete ${item.ingredientName}`} type="button" onClick={() => onDelete(item)}><Trash2 size={14} /></button></div>
+                          <div className="popover-heading"><strong>Why it’s on the list</strong><button aria-label="Close item details" type="button" onClick={(event) => event.currentTarget.closest('details')?.removeAttribute('open')}><X size={16} /></button></div>
                           {item.recipeContributions.length ? (
                             <ul>{item.recipeContributions.map((contribution) => <li key={`${contribution.recipeId}-${contribution.ingredientId}`}><span>{contribution.recipeTitle}</span><small>{contribution.rawText}</small></li>)}</ul>
                           ) : <p>Added manually.</p>}
                           <label>Store section<select value={item.groceryCategory} onChange={(event) => onChangeCategory(item, event.target.value as GroceryCategory)}>{ALL_CATEGORIES.map((option) => <option value={option} key={option}>{option}</option>)}</select></label>
+                          <button className="popover-delete" type="button" onClick={() => onDelete(item)}><Trash2 size={15} />Delete item</button>
                         </div>
                       </details>
                     </article>

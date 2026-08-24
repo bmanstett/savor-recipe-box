@@ -34,6 +34,24 @@ if (!htmlAssets.length) throw new Error('Production HTML does not reference any 
 const missingFromDisk = htmlAssets.filter((path) => !emittedAssets.includes(path));
 if (missingFromDisk.length) throw new Error(`Production HTML references missing assets: ${missingFromDisk.join(', ')}`);
 
+const viewportContent = html.match(/<meta[^>]+name="viewport"[^>]+content="([^"]+)"/i)?.[1] ?? '';
+for (const requiredToken of ['width=device-width', 'initial-scale=1', 'viewport-fit=cover']) {
+  if (!viewportContent.includes(requiredToken)) throw new Error(`Production viewport is missing ${requiredToken}.`);
+}
+if (/maximum-scale|user-scalable\s*=\s*no/i.test(viewportContent)) {
+  throw new Error('Production viewport must preserve accessible pinch zoom.');
+}
+
+const cssAssets = htmlAssets.filter((path) => path.endsWith('.css'));
+if (!cssAssets.length) throw new Error('Production HTML does not reference a built stylesheet.');
+const productionCss = (await Promise.all(cssAssets.map((path) => readFile(resolve(distRoot, path), 'utf8')))).join('\n');
+if (!productionCss.includes('--ios-form-control-font-size:16px')) {
+  throw new Error('Production CSS is missing the iOS 16px form-control guard.');
+}
+if (!productionCss.includes('font-size:var(--ios-form-control-font-size)!important')) {
+  throw new Error('Production CSS does not apply the iOS form-control guard.');
+}
+
 for (const icon of manifest.icons ?? []) {
   const path = String(icon.src ?? '').replace(/^\.\//, '');
   if (!path) throw new Error('The web app manifest contains an icon without a path.');

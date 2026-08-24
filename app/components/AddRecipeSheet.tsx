@@ -309,13 +309,13 @@ export function AddRecipeSheet({ initialRecipe, onClose, onSave, onImportRecipeU
 
                 <div className="form-section">
                   <div className="form-section-heading"><span>02</span><div><h2>Ingredients</h2><p>One ingredient per line. Use a line ending in “:” for a section.</p></div></div>
-                  <label className="field-label wide-field">Ingredient lines<textarea className="structured-textarea" rows={Math.max(7, ingredientText.split('\n').length + 1)} value={ingredientText} onChange={(event) => setIngredientText(event.target.value)} placeholder={'Sauce:\n2 tbsp olive oil\n1 medium onion, diced\n½ cup cream'} /></label>
+                  <label className="field-label wide-field">Ingredient lines<textarea className="structured-textarea" rows={Math.min(14, Math.max(7, ingredientText.split('\n').length + 1))} value={ingredientText} onChange={(event) => setIngredientText(event.target.value)} placeholder={'Sauce:\n2 tbsp olive oil\n1 medium onion, diced\n½ cup cream'} /></label>
                   {reviewCount ? <p className="confidence-note"><AlertCircle size={14} />{reviewCount} line{reviewCount === 1 ? ' has' : 's have'} an uncertain or missing quantity. Savor will keep them separate in grocery aggregation until corrected.</p> : null}
                 </div>
 
                 <div className="form-section">
                   <div className="form-section-heading"><span>03</span><div><h2>Instructions</h2><p>One clear step per line.</p></div></div>
-                  <label className="field-label wide-field">Cooking steps<textarea className="structured-textarea" rows={Math.max(7, instructionText.split('\n').length + 1)} value={instructionText} onChange={(event) => setInstructionText(event.target.value)} placeholder={'1. Heat the oven to 425°F.\n2. Season the chicken…'} /></label>
+                  <label className="field-label wide-field">Cooking steps<textarea className="structured-textarea" rows={Math.min(14, Math.max(7, instructionText.split('\n').length + 1))} value={instructionText} onChange={(event) => setInstructionText(event.target.value)} placeholder={'1. Heat the oven to 425°F.\n2. Season the chicken…'} /></label>
                 </div>
 
                 <div className="form-section compact-form-section">
