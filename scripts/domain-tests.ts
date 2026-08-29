@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { aggregateRecipes, createBlankDraft, draftToRecipe, formatRational, parseIngredientLine, parseRecipeText } from '../lib/domain.ts';
 import { buildSundayPrepRecommendation, optimizeMealWeek } from '../lib/meal-week-optimizer.ts';
 import { formatSkylightWeek, isValidSkylightDeviceEmail, normalizeSkylightEmailApp, skylightEmailDraftUrl, skylightGmailComposeUrl, skylightMailto } from '../lib/skylight.ts';
+import { isImageReference, normalizeImageReference } from '../lib/media-reference.ts';
 import { parseRecipeSourceUrl } from '../lib/recipe-source.ts';
 import type { Recipe } from '../lib/types.ts';
 
@@ -357,4 +358,22 @@ function itemFor(items: ReturnType<typeof aggregateRecipes>, normalized: string,
   assert.match(seafoodWarning?.recommendation ?? '', /keep it frozen/i);
 }
 
-console.log('Domain tests passed: 22 scenarios');
+{
+  // A recipe imported from Instagram carries no hero image. An earlier build
+  // stored that as "" instead of null, and every later sync then rejected the
+  // whole household file with "contains invalid records".
+  assert.equal(isImageReference(null), true);
+  assert.equal(isImageReference(''), true, 'a blank hero image must not invalidate the household file');
+  assert.equal(normalizeImageReference(''), null, 'a blank hero image must be stored as null');
+  assert.equal(normalizeImageReference(null), null);
+  assert.equal(normalizeImageReference('./recipes/lemon-chicken.jpg'), './recipes/lemon-chicken.jpg');
+  assert.equal(isImageReference('./recipes/lemon-chicken.jpg'), true);
+  assert.equal(isImageReference(`github-media:savor/v1/media/${'a'.repeat(64)}.webp`), true);
+  assert.equal(isImageReference('data:image/webp;base64,UklGRg=='), true);
+  assert.equal(isImageReference('https://images.example.com/dish.jpg'), true);
+  assert.equal(isImageReference('javascript:alert(1)'), false, 'unsafe references must still be rejected');
+  assert.equal(isImageReference('data:text/html;base64,PHNjcmlwdD4='), false);
+  assert.equal(isImageReference(42), false);
+}
+
+console.log('Domain tests passed: 23 scenarios');

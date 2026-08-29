@@ -136,14 +136,46 @@ export function SavorApp({
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
     window.addEventListener('beforeinstallprompt', handleInstall);
-    if ('serviceWorker' in navigator) navigator.serviceWorker.register(new URL('sw.js', document.baseURI), { scope: './' }).catch(() => undefined);
+    let releaseWorker: (() => void) | undefined;
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register(new URL('sw.js', document.baseURI), { scope: './' }).then((registration) => {
+        const announce = () => showToast({
+          message: 'A new version of Savor is ready.',
+          actionLabel: 'Update now',
+          action: () => window.location.reload(),
+        });
+        const watchInstall = () => {
+          const installing = registration.installing;
+          if (!installing) return;
+          installing.addEventListener('statechange', () => {
+            // Reaching "installed" while a worker already controls the page means
+            // this is an update rather than the very first install.
+            if (installing.state === 'installed' && navigator.serviceWorker.controller) announce();
+          });
+        };
+        registration.addEventListener('updatefound', watchInstall);
+        if (registration.waiting && navigator.serviceWorker.controller) announce();
+        // Installed iPhone apps stay suspended for days without ever reloading,
+        // so look for a newer build every time Savor comes back to the front.
+        const checkForUpdate = () => {
+          if (document.visibilityState === 'visible') registration.update().catch(() => undefined);
+        };
+        document.addEventListener('visibilitychange', checkForUpdate);
+        checkForUpdate();
+        releaseWorker = () => {
+          registration.removeEventListener('updatefound', watchInstall);
+          document.removeEventListener('visibilitychange', checkForUpdate);
+        };
+      }).catch(() => undefined);
+    }
     return () => {
       window.clearTimeout(initialSync);
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
       window.removeEventListener('beforeinstallprompt', handleInstall);
+      releaseWorker?.();
     };
-  }, []);
+  }, [showToast]);
 
   async function saveRecipe(draft: RecipeDraft) {
     const existing = data.recipes.find((recipe) => recipe.id === draft.id);

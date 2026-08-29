@@ -6,6 +6,7 @@ import {
   type Tombstones,
 } from './client-cache';
 import type { BootstrapData, GroceryItem, HouseholdPreferences, MealPlanEntry, Recipe } from './types';
+import { isHttpUrl, isImageReference, normalizeImageReference } from './media-reference';
 import { isValidSkylightDeviceEmail } from './skylight';
 
 const API_ROOT = 'https://api.github.com';
@@ -82,22 +83,6 @@ function decodeText(value: string): string {
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
-}
-
-function isHttpUrl(value: unknown): boolean {
-  if (value === null) return true;
-  if (typeof value !== 'string' || value.length > 2_048) return false;
-  try { return ['http:', 'https:'].includes(new URL(value).protocol); }
-  catch { return false; }
-}
-
-function isImageReference(value: unknown): boolean {
-  if (value === null) return true;
-  if (typeof value !== 'string' || value.length > 1_300_000) return false;
-  if (/^\.\/recipes\/[A-Za-z0-9_.-]+$/.test(value)) return true;
-  if (/^github-media:savor\/v1\/media\/[a-f0-9]{64}\.(?:jpg|png|webp)$/.test(value)) return true;
-  if (/^data:image\/(?:jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(value)) return true;
-  return isHttpUrl(value);
 }
 
 function assertBootstrapData(value: unknown): asserts value is BootstrapData {
@@ -488,7 +473,7 @@ async function prepareMedia(document: RemoteDocument, client: GitHubClient): Pro
     return next;
   };
   for (const recipe of copy.data.recipes) {
-    recipe.heroImage = await convert(recipe.heroImage);
+    recipe.heroImage = normalizeImageReference(await convert(normalizeImageReference(recipe.heroImage)));
     for (const attachment of recipe.attachments) attachment.url = (await convert(attachment.url)) ?? attachment.url;
   }
   return copy;
@@ -511,7 +496,8 @@ async function downloadMedia(client: GitHubClient, reference: string): Promise<s
 async function hydrateMedia(document: RemoteDocument, client: GitHubClient): Promise<RemoteDocument> {
   const copy = structuredClone(document);
   for (const recipe of copy.data.recipes) {
-    recipe.heroImage = await downloadMedia(client, recipe.heroImage ?? '');
+    const heroImage = normalizeImageReference(recipe.heroImage);
+    recipe.heroImage = heroImage ? await downloadMedia(client, heroImage) : null;
     for (const attachment of recipe.attachments) attachment.url = (await downloadMedia(client, attachment.url)) ?? '';
     recipe.attachments = recipe.attachments.filter((attachment) => Boolean(attachment.url));
   }
