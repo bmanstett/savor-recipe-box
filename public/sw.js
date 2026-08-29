@@ -1,4 +1,4 @@
-const CACHE_NAME = 'savor-static-v4';
+const CACHE_NAME = 'savor-static-v5';
 const BASE = new URL(self.registration.scope).pathname.replace(/\/$/, '');
 const scoped = (path = '') => `${BASE}/${path}`;
 const BUILD_ASSETS = [
