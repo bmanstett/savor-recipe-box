@@ -29,6 +29,9 @@
   /* Home-indicator clearance. Named so bottom-anchored actions can reserve it
      consistently, and so it can be simulated when testing on a desktop. */
   --safe-bottom: env(safe-area-inset-bottom, 0px);
+  /* The keyboard covers the home indicator, so that clearance is only owed
+     while the keyboard is closed. */
+  --safe-bottom-clear: max(0px, calc(var(--safe-bottom) - var(--keyboard-inset)));
   --ios-form-control-font-size: 16px;
   color-scheme: light;
 }
@@ -387,7 +390,11 @@ h1, h2, h3 { text-wrap: balance; }
 .grocery-empty { min-height: 350px; }
 
 /* Shared dialogs and sheets */
-.dialog-backdrop, .sheet-backdrop { position: fixed; inset: 0; z-index: 120; display: grid; min-height: var(--app-viewport-height); place-items: center; padding: 22px 22px calc(22px + var(--keyboard-inset)); background: rgb(36 32 25 / 45%); backdrop-filter: blur(8px); }
+/* The single row is given a definite size so a sheet's percentage height or
+   max-height resolves against the screen instead of its own content. Without
+   it a tall sheet grows past the bottom of the screen and takes its footer
+   actions with it. */
+.dialog-backdrop, .sheet-backdrop { position: fixed; inset: 0; z-index: 120; display: grid; grid-template-rows: minmax(0, 1fr); min-height: var(--app-viewport-height); place-items: center; padding: 22px 22px calc(22px + var(--keyboard-inset)); background: rgb(36 32 25 / 45%); backdrop-filter: blur(8px); }
 .dialog-backdrop { overflow-y: auto; }
 .mini-dialog { position: relative; width: min(430px, 100%); max-height: calc(var(--app-viewport-height) - 44px); overflow-y: auto; padding: 28px; border: 1px solid var(--line); border-radius: 24px; background: var(--surface); box-shadow: var(--shadow-float); }
 .mini-dialog h2 { margin: 0 0 8px; font-family: var(--serif); font-size: 30px; letter-spacing: -0.04em; }
@@ -413,11 +420,11 @@ h1, h2, h3 { text-wrap: balance; }
   box-shadow: var(--shadow-float);
 }
 .schedule-only-dialog { width: min(760px, 100%); }
-.optimize-dialog-header { position: relative; display: grid; grid-template-columns: 46px minmax(0, 1fr); gap: 15px; padding: 27px 70px 20px 28px; border-bottom: 1px solid var(--line); }
+.optimize-dialog-header { position: relative; display: grid; flex: 0 0 auto; grid-template-columns: 46px minmax(0, 1fr); gap: 15px; padding: 27px 70px 20px 28px; border-bottom: 1px solid var(--line); }
 .optimize-title-mark { display: grid; width: 46px; height: 46px; place-items: center; border-radius: 15px; background: var(--sage); color: white; }
 .optimize-dialog-header h2 { margin: 0; font-family: var(--serif); font-size: clamp(28px, 3vw, 38px); letter-spacing: -0.045em; }
 .optimize-dialog-header > div:last-of-type > p:last-child { max-width: 720px; margin: 7px 0 0; color: var(--muted); font-size: 11px; line-height: 1.55; }
-.optimize-scroll { overflow-y: auto; padding: 20px 28px 25px; overscroll-behavior: contain; }
+.optimize-scroll { min-height: 0; flex: 1; overflow-y: auto; padding: 20px 28px 25px; overscroll-behavior: contain; }
 .optimization-confidence { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 18px; padding: 15px 17px; border: 1px solid #cbd8cf; border-radius: 16px; background: var(--sage-soft); }
 .optimization-confidence strong, .optimization-confidence span { display: block; }
 .optimization-confidence strong { color: var(--sage-dark); font-family: var(--serif); font-size: 17px; }
@@ -467,7 +474,7 @@ h1, h2, h3 { text-wrap: balance; }
 .optimizer-safety-note svg { flex: 0 0 auto; color: var(--terracotta); }
 .optimizer-safety-note p { margin: 0; font-size: 9px; line-height: 1.55; }
 .optimizer-safety-note strong { color: var(--ink); }
-.optimize-footer { display: flex; min-height: 72px; align-items: center; justify-content: space-between; gap: 20px; padding: 13px 28px; border-top: 1px solid var(--line); background: #faf7f0; }
+.optimize-footer { display: flex; min-height: 72px; flex: 0 0 auto; align-items: center; justify-content: space-between; gap: 20px; padding: 13px 28px; border-top: 1px solid var(--line); background: #faf7f0; }
 .optimize-footer > p { max-width: 500px; margin: 0; color: var(--muted); font-size: 9px; line-height: 1.45; }
 .optimize-footer > div { display: flex; flex: 0 0 auto; gap: 8px; }
 
@@ -893,7 +900,7 @@ h1, h2, h3 { text-wrap: balance; }
   .optimization-confidence { padding: 13px; }
   .optimization-confidence span { max-width: 60ch; }
   .optimizer-grid { gap: 12px; margin-top: 14px; }
-  .optimize-footer { align-items: stretch; flex-direction: column; gap: 10px; padding: 12px 14px calc(12px + var(--safe-bottom)); }
+  .optimize-footer { align-items: stretch; flex-direction: column; gap: 10px; padding: 12px 14px calc(22px + var(--safe-bottom-clear)); }
   .optimize-footer > p { max-width: none; }
   .optimize-footer > div { display: grid; grid-template-columns: 1fr 1.35fr; }
   .optimize-footer .button { padding-inline: 9px; font-size: 9px; }
@@ -1166,18 +1173,20 @@ h1, h2, h3 { text-wrap: balance; }
      showing through it. */
   .capture-form button[type='submit'].full-button {
     position: sticky;
-    bottom: calc(12px + var(--safe-bottom));
+    bottom: calc(22px + var(--safe-bottom-clear));
     z-index: 3;
     min-height: 50px;
     box-shadow:
       0 -9px 15px -9px rgb(43 36 27 / 20%),
-      0 calc(12px + var(--safe-bottom)) 0 calc(12px + var(--safe-bottom)) var(--surface);
+      0 calc(22px + var(--safe-bottom-clear)) 0 calc(22px + var(--safe-bottom-clear)) var(--surface);
   }
-  .capture-options { padding-bottom: calc(18px + var(--safe-bottom)); }
-  .capture-form { padding-bottom: calc(24px + var(--safe-bottom)); }
+  .capture-options { padding-bottom: calc(22px + var(--safe-bottom-clear)); }
+  .capture-form { padding-bottom: calc(30px + var(--safe-bottom-clear)); }
+  /* Save and Cancel sit at the very edge of the screen, so they need real
+     breathing room below them on top of the home-indicator clearance. */
   .sheet-footer {
     padding-right: max(14px, env(safe-area-inset-right));
-    padding-bottom: calc(11px + var(--safe-bottom));
+    padding-bottom: calc(22px + var(--safe-bottom-clear));
     padding-left: max(14px, env(safe-area-inset-left));
   }
   .sheet-footer .button { font-size: 12px; }
@@ -1195,6 +1204,7 @@ h1, h2, h3 { text-wrap: balance; }
     padding-right: max(18px, env(safe-area-inset-right));
     padding-left: max(18px, env(safe-area-inset-left));
   }
+  .settings-footer { padding-bottom: calc(22px + var(--safe-bottom-clear)); }
   .settings-header { padding-top: 22px; }
   .settings-header p:not(.eyebrow),
   .settings-section-heading p,
