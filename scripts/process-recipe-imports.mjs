@@ -15,7 +15,7 @@ const MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
 const MAX_REDIRECTS = 3;
 const REQUEST_TIMEOUT_MS = 15_000;
 const JOB_TIMEOUT_MS = 55_000;
-const MAX_RELATED_PAGES = 3;
+const MAX_RELATED_PAGES = 5;
 const MAX_NETWORK_REQUESTS = 8;
 const MAX_JOBS_DEFAULT = 10;
 const USER_AGENT = 'SavorRecipeImporter/1.0 (+https://github.com/bmanstett/savor-recipe-box)';
@@ -34,6 +34,57 @@ const NON_RECIPE_HOSTS = new Set([
   'pinterest.com', 'www.pinterest.com',
   'snapchat.com', 'www.snapchat.com',
 ]);
+
+// Link-in-bio landing pages. They are not recipe pages themselves, but they are
+// the usual route from a creator profile to the page that holds the recipe, so
+// the crawler visits them early and follows their outbound links.
+const LINK_HUB_HOSTS = new Set([
+  'linktr.ee', 'linktree.com',
+  'beacons.ai', 'beacons.page',
+  'stan.store',
+  'lnk.bio', 'linkin.bio', 'bio.site', 'bio.fm',
+  'campsite.bio', 'tap.bio',
+  'milkshake.app', 'msha.ke',
+  'solo.to', 'liinks.co', 'hoo.be', 'komi.io',
+  'allmylinks.com', 'direct.me', 'snipfeed.co', 'flow.page',
+]);
+
+const NON_RECIPE_PATH_PATTERN = /\/(?:about|contact|privacy|terms|press|careers|account|login|signup|cart|checkout|subscribe|newsletter|merch|podcast)(?:\/|$)/i;
+
+function isLinkHubUrl(url) {
+  const host = url.hostname.toLowerCase().replace(/^www\./, '');
+  return LINK_HUB_HOSTS.has(host) || host.endsWith('.carrd.co');
+}
+
+const TITLE_STOPWORDS = new Set([
+  'and', 'the', 'with', 'for', 'from', 'this', 'that', 'these', 'your', 'you',
+  'recipe', 'recipes', 'easy', 'best', 'quick', 'simple', 'homemade', 'how', 'make',
+]);
+
+function recipeTitleTokens(title) {
+  return unique(normalizeName(title).split(' '))
+    .filter((word) => word.length >= 3 && !TITLE_STOPWORDS.has(word));
+}
+
+// Order candidate pages so the crawl budget is spent on the pages most likely
+// to hold this recipe: slugs matching the caption title, then recipe-ish URLs
+// and link-in-bio hubs, with obvious non-recipe pages (about, shop, …) last.
+export function rankRelatedUrls(urls, titleTokens = []) {
+  return urls
+    .map((url, index) => {
+      let slug;
+      try { slug = decodeURIComponent(url.pathname); } catch { slug = url.pathname; }
+      slug = normalizeName(slug.replace(/[^\p{L}\p{N}]+/gu, ' '));
+      let score = 0;
+      for (const token of titleTokens) if (slug.includes(token)) score += 5;
+      if (/\brecipes?\b/.test(`${slug} ${url.hostname.toLowerCase()}`)) score += 2;
+      if (isLinkHubUrl(url)) score += 3;
+      if (NON_RECIPE_PATH_PATTERN.test(url.pathname)) score -= 6;
+      return { url, index, score };
+    })
+    .sort((left, right) => right.score - left.score || left.index - right.index)
+    .map((item) => item.url);
+}
 
 const COMMON_HTML_ENTITIES = {
   amp: '&', apos: "'", gt: '>', hellip: '…', ldquo: '“', lsquo: '‘',
@@ -912,7 +963,8 @@ function assertRequest(request, fallbackJobId) {
 }
 
 async function inspectRecipePage(url, context) {
-  context.sourcesChecked.push(sourceRecord('recipe-page', url, `Recipe page on ${url.hostname.replace(/^www\./, '')}`));
+  const host = url.hostname.replace(/^www\./, '');
+  context.sourcesChecked.push(sourceRecord('recipe-page', url, isLinkHubUrl(url) ? `Creator links on ${host}` : `Recipe page on ${host}`));
   context.takeRequest();
   const response = await context.fetchText(url, { timeoutMs: context.remainingTime(), maxBytes: MAX_RESPONSE_BYTES });
   const finalUrl = normalizeSourceUrl(response.url ?? url);
@@ -972,7 +1024,11 @@ async function processInstagram(sourceUrl, context) {
     }
   }
 
-  const queue = unique(candidateUrls.filter((url) => isLikelyRelatedUrl(url, sourceUrl)).map((url) => url.href)).map((url) => new URL(url));
+  const titleTokens = recipeTitleTokens(captionDraft.title || post.title || '');
+  let queue = rankRelatedUrls(
+    unique(candidateUrls.filter((url) => isLikelyRelatedUrl(url, sourceUrl)).map((url) => url.href)).map((url) => new URL(url)),
+    titleTokens,
+  );
   const seen = new Set();
   let pagesChecked = 0;
   while (queue.length && pagesChecked < MAX_RELATED_PAGES) {
@@ -991,8 +1047,12 @@ async function processInstagram(sourceUrl, context) {
         best.notes = cleanText(`Recipe details: ${candidate.href}`, 2_000);
       }
       if (completeDraft(best)) break;
-      for (const link of page.links) {
-        if (!seen.has(link.href) && isLikelyRelatedUrl(link, candidate)) queue.push(link);
+      const discovered = page.links.filter((link) => !seen.has(link.href) && isLikelyRelatedUrl(link, candidate));
+      if (discovered.length) {
+        queue = rankRelatedUrls(
+          unique([...queue, ...discovered].map((url) => url.href)).map((url) => new URL(url)),
+          titleTokens,
+        );
       }
     } catch (error) {
       warnings.push(userFacingFetchWarning('recipe-page', error));
