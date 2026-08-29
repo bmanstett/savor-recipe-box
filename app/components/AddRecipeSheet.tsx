@@ -72,7 +72,7 @@ export function AddRecipeSheet({ initialRecipe, onClose, onSave, onImportRecipeU
 
   useEffect(() => () => importAbortRef.current?.abort(), []);
 
-  function openReview(result: ImportResult | { draft: RecipeDraft; warnings: string[]; provider: 'manual' }) {
+  function openReview(result: ImportResult | { draft: RecipeDraft; warnings: string[]; provider: ImportResult['provider'] | 'manual' }) {
     const sourceLinks = 'sourcesChecked' in result ? result.sourcesChecked : undefined;
     const importedDraft = sourceLinks?.length
       ? { ...result.draft, sourceLinks: sourceLinks.map((source) => ({ ...source })) }
@@ -167,23 +167,23 @@ export function AddRecipeSheet({ initialRecipe, onClose, onSave, onImportRecipeU
           type: 'original-photo' as const,
           url: prepared.dataUrl,
           mimeType: prepared.mimeType,
-          originalFilename: file.name || 'recipe-photo.webp',
+          originalFilename: file.name || (prepared.mimeType === 'image/jpeg' ? 'recipe-photo.jpg' : 'recipe-photo.webp'),
           captureDate: new Date().toISOString(),
         });
       }
       const next = phase === 'review' ? { ...draft } : createBlankDraft('photo');
-      next.sourceType = 'photo';
       next.attachments = [...next.attachments, ...attachments];
       next.heroImage ||= attachments[0]?.url ?? null;
+      const photoWarning = 'Original image compressed and preserved. Review and transcribe the visible recipe before saving.';
       openReview({
         draft: next,
-        provider: 'manual-photo',
-        warnings: ['Original image compressed and preserved. Review and transcribe the visible recipe before saving.'],
+        provider: phase === 'review' ? provider : 'manual-photo',
+        warnings: phase === 'review' ? [...new Set([...warnings, photoWarning])] : [photoWarning],
       });
-    } catch {
+    } catch (caught) {
       setError({
-        message: 'The image could not be uploaded.',
-        recovery: ['Try a JPEG, PNG, or WebP image', 'Use a smaller crop', 'Continue without a photo'],
+        message: caught instanceof Error ? caught.message : 'The image could not be uploaded.',
+        recovery: ['Try a JPEG, PNG, WebP, or HEIC photo', 'Use a smaller crop', 'Continue without a photo'],
       });
     } finally {
       setProcessing(false);
@@ -232,7 +232,7 @@ export function AddRecipeSheet({ initialRecipe, onClose, onSave, onImportRecipeU
               <button type="button" onClick={() => fileRef.current?.click()}><span className="capture-icon"><ScanLine size={21} /></span><span><strong>Photo or screenshot</strong><small>Preserve the original and transcribe it</small></span><ArrowLeft className="capture-arrow" size={16} /></button>
               <button type="button" onClick={() => setMode('paste')}><span className="capture-icon"><ClipboardPaste size={21} /></span><span><strong>Paste recipe text</strong><small>Automatically structures ingredients and steps</small></span><ArrowLeft className="capture-arrow" size={16} /></button>
               <button type="button" onClick={startManual}><span className="capture-icon"><PenLine size={21} /></span><span><strong>Create manually</strong><small>Fast keyboard-first recipe entry</small></span><ArrowLeft className="capture-arrow" size={16} /></button>
-              <input ref={fileRef} className="sr-only" type="file" accept="image/jpeg,image/png,image/webp" capture="environment" multiple onChange={uploadPhotos} />
+              <input ref={fileRef} className="sr-only" type="file" accept="image/*" multiple onChange={uploadPhotos} />
               <aside className="privacy-note"><Camera size={17} /><p><strong>Private by default.</strong> Photos are compressed on this device, then synced only to your private GitHub data repository.</p></aside>
             </div>
           ) : null}
@@ -287,7 +287,7 @@ export function AddRecipeSheet({ initialRecipe, onClose, onSave, onImportRecipeU
                 </div>
                 {draft.attachments.length ? <div className="attachment-strip">{draft.attachments.map((attachment) => <img alt="Original recipe attachment" src={attachment.url} key={attachment.id} />)}</div> : null}
                 <button className="button button-secondary full-button" type="button" onClick={() => fileRef.current?.click()}><Upload size={16} />{draft.attachments.length ? 'Add another page' : 'Attach original image'}</button>
-                <input ref={fileRef} className="sr-only" type="file" accept="image/jpeg,image/png,image/webp" multiple onChange={uploadPhotos} />
+                <input ref={fileRef} className="sr-only" type="file" accept="image/*" multiple onChange={uploadPhotos} />
                 <div className="review-status"><CheckCircle2 size={17} /><div><strong>{provider === 'schema-org' ? 'Structured page data' : provider === 'linked-recipe' ? 'Linked recipe page' : provider === 'instagram-caption' ? 'Public Instagram details' : provider === 'public-reader' ? 'Public page details' : provider === 'text-parser' ? 'Parsed recipe text' : provider === 'manual-photo' ? 'Original image preserved' : 'Manual recipe'}</strong><small>{reviewCount ? `${reviewCount} ingredient${reviewCount === 1 ? '' : 's'} need review` : 'Ready for your review'}</small></div></div>
                 {draft.sourceLinks?.length ? <div className="import-sources"><strong>Sources attempted</strong>{draft.sourceLinks.map((source) => <a key={`${source.kind}:${source.url}`} href={source.url} target="_blank" rel="noreferrer">{source.label}<ExternalLink size={12} /></a>)}</div> : null}
               </aside>
