@@ -174,6 +174,9 @@ const DELICATE_PRODUCE = /\b(avocado|cucumber|berry|berries|peach|pear|tomato|mu
 const SEAFOOD = /\b(salmon|shrimp|prawn|fish|cod|tilapia|tuna|trout|halibut|scallop|crab|lobster|mussel|oyster|clam)\b/i;
 const RAW_MEAT = /\b(chicken|turkey|beef|pork|lamb|steak|sausage|ground meat|duck)\b/i;
 const SHELF_STABLE = /\b(canned|tinned|shelf-stable|broth|stock|jerky)\b/i;
+// Condiments and dry goods that merely mention a perishable in their name
+// ("fish sauce", "chicken bouillon", "peanut butter") keep for months.
+const PANTRY_CONDIMENT = /\b(?:sauce|paste|bouillon|base|powder|extract|oil|seasoning|dried|sun-dried|dehydrated|peanut butter|almond butter|cream of tartar|coconut (?:milk|cream)|imitation crab|crackers?|chips)\b/i;
 const PRECOOKED_PROTEIN = /\b(cooked|rotisserie|smoked|deli|leftover|fully cooked)\b/i;
 const DAIRY_EGGS = /\b(milk|cream|butter|cheese|mozzarella|parmesan|yogurt|egg|sour cream|crema)\b/i;
 const BAKERY = /\b(bread|roll|tortilla|baguette|bun|pita|naan)\b/i;
@@ -220,7 +223,12 @@ function tryParseDateKey(value: string): number | null {
 
 function purchaseDay(value: string | null | undefined): number | null {
   if (!value) return null;
-  return tryParseDateKey(value.slice(0, 10));
+  // Purchases are stamped as UTC instants; the plan is kept in local dates, so
+  // an evening check-off must land on the local day it happened, not the next.
+  const purchased = new Date(value);
+  if (Number.isNaN(purchased.getTime())) return tryParseDateKey(value.slice(0, 10));
+  const local = `${purchased.getFullYear()}-${String(purchased.getMonth() + 1).padStart(2, '0')}-${String(purchased.getDate()).padStart(2, '0')}`;
+  return tryParseDateKey(local);
 }
 
 function dateKeyFromDay(day: number): string {
@@ -241,6 +249,9 @@ function classifyIngredient(ingredient: Ingredient): FreshnessRule {
     return { category: 'frozen', rank: 9, conservativeDays: 60 };
   }
   if (ingredient.normalizedUnit === 'can' || SHELF_STABLE.test(text) || ingredient.groceryCategory === 'Canned & Jarred') {
+    return { category: 'pantry', rank: 8, conservativeDays: 30 };
+  }
+  if (PANTRY_CONDIMENT.test(text) && !/\bfresh\b/i.test(text)) {
     return { category: 'pantry', rank: 8, conservativeDays: 30 };
   }
   if (SEAFOOD.test(text)) return { category: 'seafood', rank: 0, conservativeDays: 1 };

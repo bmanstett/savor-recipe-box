@@ -385,8 +385,8 @@ function mergeDocuments(local: RemoteDocument, remote: RemoteDocument, base?: Re
     ? newestTimestamp(local.preferencesUpdatedAt, remote.preferencesUpdatedAt) ?? now
     : local.preferencesUpdatedAt >= remote.preferencesUpdatedAt ? local.preferencesUpdatedAt : remote.preferencesUpdatedAt;
   const data: BootstrapData = {
-    recipes: recipes.rows.sort((a, b) => b.dateModified.localeCompare(a.dateModified)),
-    mealPlan: mealPlan.rows.sort((a, b) => a.date.localeCompare(b.date)),
+    recipes: recipes.rows.sort((a, b) => rowTimestamp(b).localeCompare(rowTimestamp(a))),
+    mealPlan: mealPlan.rows.sort((a, b) => String(a.date ?? '').localeCompare(String(b.date ?? ''))),
     groceryItems: groceryItems.rows,
     preferences,
     user: local.data.user,
@@ -447,6 +447,8 @@ async function uploadMedia(client: GitHubClient, dataUrl: string): Promise<strin
   if (bytes.byteLength > 950_000) throw new GitHubSyncError('One attached image is still too large to sync. Reattach a smaller copy.');
   const extension = parsed.mimeType === 'image/png' ? 'png' : parsed.mimeType === 'image/webp' ? 'webp' : 'jpg';
   const path = `savor/v1/media/${await digestHex(bytes)}.${extension}`;
+  // The local media cache is shared across repositories, so it cannot vouch for
+  // the file existing in this one; the existence check stays.
   const existing = await client.getFile(path);
   if (!existing) {
     try {

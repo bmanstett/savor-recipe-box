@@ -1,0 +1,10 @@
+{
+  "code": 200,
+  "status": 20000,
+  "data": {
+    "title": "Smoky Chipotle Black Bean Tacos | Fixture Kitchen App",
+    "url": "https://app.example.recipes/r/smoky-chipotle-black-bean-tacos",
+    "content": "# Smoky Chipotle Black Bean Tacos\n\nServes 4 · 25 minutes\n\n## Ingredients\n\n* 2 cans black beans, drained\n* 1 chipotle in adobo, minced\n* 8 corn tortillas\n* 1 avocado, sliced\n* 1/2 cup crumbled cotija cheese\n\n## Method\n\n1. Warm the beans with the chipotle and a splash of water, mashing a few.\n2. Char the tortillas over a flame.\n3. Fill with beans, avocado and cheese.\n\n[Open in app](https://app.example.recipes/open) · [Instagram](https://www.instagram.com/fixturekitchen/)",
+    "metadata": { "og:title": "Smoky Chipotle Black Bean Tacos" }
+  }
+}

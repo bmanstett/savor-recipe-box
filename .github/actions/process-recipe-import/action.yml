@@ -10,6 +10,10 @@ inputs:
     description: Maximum number of pending requests to process in this run (1-100).
     required: false
     default: '10'
+  max-run-minutes:
+    description: Wall-clock budget for the run (1-360). Requests not started before it is spent are left for the next run and counted in the `deferred` output.
+    required: false
+    default: '15'
   jina-api-key:
     description: Optional Jina Reader API key. Public no-key access is supported.
     required: false
@@ -27,6 +31,9 @@ outputs:
   failed:
     description: Number of error results.
     value: ${{ steps.process.outputs.failed }}
+  deferred:
+    description: Number of pending requests left for the next run because the run budget was spent.
+    value: ${{ steps.process.outputs.deferred }}
   results:
     description: JSON array of result paths modified in the working tree.
     value: ${{ steps.process.outputs.results }}
@@ -41,8 +48,10 @@ runs:
       env:
         INPUT_ROOT: ${{ inputs.root }}
         INPUT_MAX_JOBS: ${{ inputs.max-jobs }}
+        INPUT_MAX_RUN_MINUTES: ${{ inputs.max-run-minutes }}
         JINA_API_KEY: ${{ inputs.jina-api-key }}
       run: |
         node "${{ github.action_path }}/../../../scripts/process-recipe-imports.mjs" \
           --root "$INPUT_ROOT" \
-          --max-jobs "$INPUT_MAX_JOBS"
+          --max-jobs "$INPUT_MAX_JOBS" \
+          --max-run-minutes "$INPUT_MAX_RUN_MINUTES"

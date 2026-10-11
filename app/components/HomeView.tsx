@@ -1,9 +1,14 @@
 'use client';
 
 import { ArrowRight, CalendarDays, Clock3, Play, ShoppingBasket, Sparkles, Users } from 'lucide-react';
+import { useMemo } from 'react';
 import { MEAL_TYPES, type BootstrapData, type Recipe } from '../../lib/types';
 
 type View = 'home' | 'recipes' | 'plan' | 'grocery';
+type AddMode = 'choose' | 'link' | 'paste' | 'manual';
+
+const DATE_KEY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+const FIXED_PICKS = ['Under 30 minutes', 'Favorites', 'Recently added'];
 
 function localDateKey(value: Date): string {
   return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`;
@@ -11,10 +16,32 @@ function localDateKey(value: Date): string {
 
 function readableDay(date: string): { day: string; date: string } {
   const value = new Date(`${date}T12:00:00`);
+  if (!DATE_KEY_PATTERN.test(date) || Number.isNaN(value.getTime())) return { day: '—', date: date || 'No date' };
   return {
     day: new Intl.DateTimeFormat('en-US', { weekday: 'short' }).format(value),
     date: new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' }).format(value),
   };
+}
+
+// Quick picks that search for a word only help when the cookbook actually
+// uses that word, so the free-text picks come from the household's own tags.
+function popularTags(recipes: Recipe[], limit = 3): string[] {
+  const counts = new Map<string, { label: string; count: number }>();
+  for (const recipe of recipes) {
+    for (const tag of recipe.tags) {
+      const key = tag.trim().toLowerCase();
+      if (!key || /favou?rite/.test(key)) continue;
+      const entry = counts.get(key) ?? { label: tag.trim(), count: 0 };
+      entry.count += 1;
+      counts.set(key, entry);
+    }
+  }
+  const minimum = recipes.length >= 6 ? 2 : 1;
+  return [...counts.values()]
+    .filter((entry) => entry.count >= minimum)
+    .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label))
+    .slice(0, limit)
+    .map((entry) => entry.label);
 }
 
 export function HomeView({
@@ -25,32 +52,38 @@ export function HomeView({
   onCook: (recipe: Recipe) => void;
   onNavigate: (view: View) => void;
   onGenerateGroceries: () => void;
-  onAddRecipe: () => void;
+  onAddRecipe: (mode?: AddMode) => void;
   onQuickPick: (label: string) => void;
 }) {
+  const quickPicks = useMemo(() => {
+    const tags = popularTags(data.recipes);
+    return [FIXED_PICKS[0], FIXED_PICKS[1], ...tags, FIXED_PICKS[2]];
+  }, [data.recipes]);
+
   if (!data.recipes.length) {
     return (
       <section className="first-run-empty">
         <div className="empty-seal"><Sparkles size={24} /></div>
         <p className="eyebrow">Your private cookbook</p>
         <h2>Your recipes. One place.</h2>
-        <p>Save recipes from anywhere, plan the week, and turn every meal into one organized grocery list.</p>
+        <p>Save recipes from Instagram, NYT Cooking, or any food blog, plan the week, and turn every meal into one organized grocery list.</p>
         <div className="empty-actions">
-          <button className="button button-primary" type="button" onClick={onAddRecipe}>Import a recipe</button>
-          <button className="button button-secondary" type="button" onClick={onAddRecipe}>Scan a recipe</button>
-          <button className="button button-ghost" type="button" onClick={onAddRecipe}>Create manually</button>
+          <button className="button button-primary" type="button" onClick={() => onAddRecipe('link')}>Import from a link</button>
+          <button className="button button-secondary" type="button" onClick={() => onAddRecipe('paste')}>Paste recipe text</button>
+          <button className="button button-ghost" type="button" onClick={() => onAddRecipe('manual')}>Create manually</button>
         </div>
       </section>
     );
   }
 
   const today = localDateKey(new Date());
-  const planned = [...data.mealPlan].sort((a, b) => a.date.localeCompare(b.date)
-    || MEAL_TYPES.indexOf(a.mealType) - MEAL_TYPES.indexOf(b.mealType));
+  const planned = [...data.mealPlan]
+    .filter((entry) => DATE_KEY_PATTERN.test(entry.date))
+    .sort((a, b) => a.date.localeCompare(b.date) || MEAL_TYPES.indexOf(a.mealType) - MEAL_TYPES.indexOf(b.mealType));
   const nextEntry = planned.find((entry) => entry.date >= today && data.recipes.some((recipe) => recipe.id === entry.recipeId));
   const nextRecipe = data.recipes.find((recipe) => recipe.id === nextEntry?.recipeId) ?? data.recipes[0];
   const nextMealLabel = nextEntry
-    ? `Planned for ${nextEntry.mealType.charAt(0).toUpperCase() + nextEntry.mealType.slice(1)}`
+    ? `${nextEntry.date === today ? 'Today' : readableDay(nextEntry.date).day} · ${nextEntry.mealType.charAt(0).toUpperCase() + nextEntry.mealType.slice(1)}`
     : 'From your cookbook';
   const upcoming = planned.filter((entry) => entry.id !== nextEntry?.id && entry.date >= today).slice(0, 4);
   const recent = [...data.recipes].sort((a, b) => b.dateAdded.localeCompare(a.dateAdded)).slice(0, 4);
@@ -73,8 +106,8 @@ export function HomeView({
             <h3>{nextRecipe.title}</h3>
             <p>{nextRecipe.description}</p>
             <div className="over-image-meta">
-              <span><Clock3 size={14} />{nextRecipe.totalTime ?? nextRecipe.cookTime ?? '—'} min</span>
-              <span><Users size={14} />Serves {nextEntry?.servings ?? nextRecipe.servings ?? '—'}</span>
+              {nextRecipe.totalTime ?? nextRecipe.cookTime ? <span><Clock3 size={14} />{nextRecipe.totalTime ?? nextRecipe.cookTime} min</span> : null}
+              {nextEntry?.servings ?? nextRecipe.servings ? <span><Users size={14} />Serves {nextEntry?.servings ?? nextRecipe.servings}</span> : null}
             </div>
             <div className="hero-button-row">
               <button className="button light-button" type="button" onClick={() => onCook(nextRecipe)}><Play size={16} fill="currentColor" />Start cooking</button>
@@ -109,12 +142,12 @@ export function HomeView({
           <span className="progress-icon"><ShoppingBasket size={19} /></span>
           <div className="progress-card-copy">
             <p className="eyebrow">Grocery list</p>
-            <h3>{remaining ? `${remaining} items left` : 'Ready when you are'}</h3>
-            <p>{data.groceryItems.length ? `${groceryProgress}% of this list is complete.` : 'Turn this week’s meals into one aisle-ready list.'}</p>
+            <h3>{remaining ? `${remaining} ${remaining === 1 ? 'item' : 'items'} left` : 'Ready when you are'}</h3>
+            <p>{data.groceryItems.length ? `${groceryProgress}% of this list is in the cart.` : 'Turn this week’s meals into one aisle-ready list.'}</p>
           </div>
           <div className="progress-track" aria-label={`${groceryProgress}% complete`}><span style={{ width: `${groceryProgress}%` }} /></div>
           <button className="button button-secondary full-button" type="button" onClick={data.groceryItems.length ? () => onNavigate('grocery') : onGenerateGroceries}>
-            {data.groceryItems.length ? 'Continue shopping' : 'Generate grocery list'}
+            {data.groceryItems.length ? 'Continue shopping' : 'Build the grocery list'}
           </button>
         </section>
       </aside>
@@ -136,7 +169,7 @@ export function HomeView({
 
       <section className="quick-picks" aria-label="Quick recipe filters">
         <span>Quick picks</span>
-        {['Under 30 minutes', 'Favorites', 'Weeknight', 'Healthy', 'Recently added'].map((label) => (
+        {quickPicks.map((label) => (
           <button type="button" key={label} onClick={() => onQuickPick(label)}>{label}</button>
         ))}
       </section>

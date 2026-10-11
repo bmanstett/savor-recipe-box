@@ -166,15 +166,41 @@ export const SEED_RECIPES: Recipe[] = [
   },
 ];
 
+/** Local calendar date as YYYY-MM-DD, the same key the meal planner uses. */
+function dateKey(value: Date): string {
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, '0');
+  const day = String(value.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function addDays(value: Date, days: number): Date {
+  const result = new Date(value);
+  result.setDate(result.getDate() + days);
+  return result;
+}
+
+/** The Sunday that starts the current week (the planner's weeks start on Sunday), pinned to noon to sidestep DST. */
+function startOfThisWeek(): Date {
+  const start = new Date();
+  start.setHours(12, 0, 0, 0);
+  start.setDate(start.getDate() - start.getDay());
+  return start;
+}
+
+const seedWeekStart = startOfThisWeek();
+/** Seed dinners land on Sunday, Tuesday, Wednesday and Thursday of whichever week the app is first opened. */
+const seedDate = (offset: number): string => dateKey(addDays(seedWeekStart, offset));
+
 export const SEED_MEAL_PLAN: MealPlanEntry[] = [
-  { id: 'meal_2026_08_23', date: '2026-08-23', mealType: 'dinner', recipeId: 'recipe_lemon_chicken', servings: 4, revision: 1, dateModified: added },
-  { id: 'meal_2026_08_25', date: '2026-08-25', mealType: 'dinner', recipeId: 'recipe_tuscan_pasta', servings: 4, revision: 1, dateModified: added },
-  { id: 'meal_2026_08_26', date: '2026-08-26', mealType: 'dinner', recipeId: 'recipe_salmon_bowl', servings: 4, revision: 1, dateModified: added },
-  { id: 'meal_2026_08_27', date: '2026-08-27', mealType: 'dinner', recipeId: 'recipe_chicken_tacos', servings: 4, revision: 1, dateModified: added },
+  { id: 'meal_seed_sunday', date: seedDate(0), mealType: 'dinner', recipeId: 'recipe_lemon_chicken', servings: 4, revision: 1, dateModified: added },
+  { id: 'meal_seed_tuesday', date: seedDate(2), mealType: 'dinner', recipeId: 'recipe_tuscan_pasta', servings: 4, revision: 1, dateModified: added },
+  { id: 'meal_seed_wednesday', date: seedDate(3), mealType: 'dinner', recipeId: 'recipe_salmon_bowl', servings: 4, revision: 1, dateModified: added },
+  { id: 'meal_seed_thursday', date: seedDate(4), mealType: 'dinner', recipeId: 'recipe_chicken_tacos', servings: 4, revision: 1, dateModified: added },
 ];
 
 export const SEED_PREFERENCES: HouseholdPreferences = {
-  pantryStaples: ['kosher salt', 'black pepper', 'olive oil'],
+  pantryStaples: ['kosher salt', 'salt', 'black pepper', 'olive oil', 'vegetable oil', 'cooking spray'],
   excludePantryStaples: true,
   skylightDeviceEmail: null,
   sectionOrder: [

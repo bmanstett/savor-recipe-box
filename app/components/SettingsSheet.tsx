@@ -4,11 +4,24 @@ import {
   ChevronDown, ChevronUp, Cloud, Download, ExternalLink, Github, HardDrive,
   KeyRound, Mail, RefreshCw, ShieldCheck, Smartphone, Unplug, Upload, X,
 } from 'lucide-react';
-import { type ChangeEvent, useRef, useState } from 'react';
+import { type ChangeEvent, useEffect, useRef, useState } from 'react';
 import type { StoredGitHubConnection } from '../../lib/client-cache';
 import type { GitHubConnectInput, SyncPresentation } from '../../lib/sync-types';
 import type { GroceryCategory, HouseholdPreferences, SkylightEmailApp } from '../../lib/types';
 import { isValidSkylightDeviceEmail } from '../../lib/skylight';
+
+// iPhone Safari never fires beforeinstallprompt, so the only way to offer the
+// installed experience is to explain the Share → Add to Home Screen gesture.
+function isIos(): boolean {
+  if (typeof navigator === 'undefined') return false;
+  return /iP(?:hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+}
+
+function isIosBrowserTab(): boolean {
+  if (!isIos()) return false;
+  const standalone = window.matchMedia('(display-mode: standalone)').matches || Boolean((navigator as Navigator & { standalone?: boolean }).standalone);
+  return !standalone;
+}
 
 export function SettingsSheet({
   preferences, skylightEmailApp, connection, hasGitHubToken, sync, installAvailable,
@@ -44,6 +57,18 @@ export function SettingsSheet({
   const [error, setError] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
   const needsLogin = !connection || !hasGitHubToken || sync.phase === 'needs-token';
+
+  // Settings can sit on top of the add sheet; Escape must close this layer
+  // only, so it is handled in the capture phase and stopped there.
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || saving || connecting || disconnecting) return;
+      event.stopImmediatePropagation();
+      onClose();
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [connecting, disconnecting, onClose, saving]);
 
   function move(index: number, direction: -1 | 1) {
     const target = index + direction;
@@ -178,6 +203,18 @@ export function SettingsSheet({
           </section>
 
           {installAvailable ? <section className="install-card"><Smartphone size={21} /><div><strong>Install Savor</strong><p>Open it from your home screen or desktop like a native app.</p></div><button className="button button-secondary" type="button" onClick={onInstall}>Install</button></section> : null}
+          {!installAvailable && isIosBrowserTab() ? <section className="install-card"><Smartphone size={21} /><div><strong>Add Savor to your Home Screen</strong><p>In Safari tap the Share button, then “Add to Home Screen”. Savor then opens full-screen and keeps working offline.</p></div></section> : null}
+          {isIos() ? (
+            <section className="settings-section">
+              <div className="settings-section-heading"><span><ExternalLink size={19} /></span><div><h2>Saving a recipe from another app</h2><p>NYT Cooking, Instagram, Safari, and any food blog.</p></div></div>
+              <ol className="how-to-list">
+                <li><strong>Tap Share in the other app</strong><span>then choose <em>Copy Link</em> (in Instagram: Share → Copy link).</span></li>
+                <li><strong>Open Savor and tap +</strong><span>then <em>Start from a link</em>.</span></li>
+                <li><strong>Tap Paste</strong><span>Savor reads the public page and opens an editable review. The link stays attached to the saved recipe.</span></li>
+              </ol>
+              <p className="github-helper">iPhone does not yet offer web apps in the share sheet, so this copy-and-paste route is the quickest one. Pages behind a sign-in cannot be read automatically; paste their text instead.</p>
+            </section>
+          ) : null}
         </div>
         <footer className="settings-footer"><button className="button button-ghost" type="button" onClick={onClose}>Close</button><button className="button button-primary" type="button" disabled={saving} onClick={save}>{saving ? 'Saving…' : 'Save preferences'}</button></footer>
       </section>

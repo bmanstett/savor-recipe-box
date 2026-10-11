@@ -1,4 +1,4 @@
-const CACHE_NAME = 'savor-static-v5';
+const CACHE_NAME = 'savor-static-v6';
 const BASE = new URL(self.registration.scope).pathname.replace(/\/$/, '');
 const scoped = (path = '') => `${BASE}/${path}`;
 const BUILD_ASSETS = [
@@ -10,23 +10,37 @@ const SHELL_ASSETS = [
   scoped('icons/icon-192.png'),
   scoped('icons/icon-512.png'),
   scoped('icons/icon-maskable-512.png'),
-  scoped('recipes/lemon-chicken.jpg'),
-  scoped('recipes/tuscan-pasta.jpg'),
-  scoped('recipes/salmon-bowl.jpg'),
-  scoped('recipes/chicken-tacos.jpg'),
-  scoped('recipes/tomato-soup.jpg'),
-  scoped('recipes/bean-salad.jpg'),
-  scoped('recipes/banana-bread.jpg'),
   ...BUILD_ASSETS.map(scoped),
 ];
+// Demo photos are nice to have offline but must never block an install.
+const OPTIONAL_ASSETS = [
+  'recipes/lemon-chicken.jpg', 'recipes/tuscan-pasta.jpg', 'recipes/salmon-bowl.jpg', 'recipes/chicken-tacos.jpg',
+  'recipes/tomato-soup.jpg', 'recipes/bean-salad.jpg', 'recipes/banana-bread.jpg',
+].map(scoped);
 
 self.addEventListener('install', (event) => {
-  event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(SHELL_ASSETS)));
+  event.waitUntil(caches.open(CACHE_NAME).then(async (cache) => {
+    // The HTML must be fetched fresh: a CDN-cached index.html would pair the
+    // previous build's script names with this worker's asset list.
+    await cache.addAll(SHELL_ASSETS.map((path) => new Request(path, { cache: path === scoped() ? 'reload' : 'default' })));
+    await Promise.allSettled(OPTIONAL_ASSETS.map((path) => cache.add(path)));
+  }));
   self.skipWaiting();
 });
 
 self.addEventListener('activate', (event) => {
-  event.waitUntil(caches.keys().then((keys) => Promise.all(keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key)))));
+  event.waitUntil((async () => {
+    const keys = await caches.keys();
+    await Promise.all(keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key)));
+    // Hashed bundles from earlier builds share this cache name; drop anything
+    // the current shell no longer references so old builds do not pile up.
+    const cache = await caches.open(CACHE_NAME);
+    const keep = new Set(SHELL_ASSETS.map((path) => new URL(path, self.location.origin).href));
+    const cached = await cache.keys();
+    await Promise.all(cached
+      .filter((request) => /\/assets\//.test(new URL(request.url).pathname) && !keep.has(request.url))
+      .map((request) => cache.delete(request)));
+  })());
   self.clients.claim();
 });
 

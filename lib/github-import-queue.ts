@@ -14,18 +14,26 @@ const API_ROOT = 'https://api.github.com';
 const REQUEST_ROOT = 'savor/v1/imports/requests';
 const RESULT_ROOT = 'savor/v1/imports/results';
 const WORKFLOW_PATH = '.github/workflows/savor-recipe-import.yml';
-const DEFAULT_TIMEOUT_MS = 120_000;
+// A fresh GitHub Actions runner can take 20-60 seconds to start before the
+// importer's own 75-second job budget begins, so the client waits generously.
+const DEFAULT_TIMEOUT_MS = 170_000;
+const MAX_TIMEOUT_MS = 240_000;
 const POLL_INTERVAL_MS = 3_000;
 const REQUEST_TIMEOUT_MS = 20_000;
+// Results from importers older than this lack fixes the app relies on (for
+// example decompressing NYT Cooking pages). The app still accepts them, but
+// tells the household that the private workflow should be updated.
+const EXPECTED_IMPORTER_VERSION = 2;
 
 const SOURCE_TYPES = new Set<SourceType>(['url', 'photo', 'screenshot', 'pasted-text', 'manual']);
 const GROCERY_CATEGORIES = new Set<GroceryCategory>([
   'Produce', 'Meat & Seafood', 'Dairy & Eggs', 'Bakery', 'Frozen', 'Pantry', 'Canned & Jarred',
   'Pasta, Rice & Grains', 'Spices & Seasonings', 'Sauces & Condiments', 'Other',
 ]);
-const RESULT_PROVIDERS = new Set(['schema-org', 'instagram-caption', 'linked-recipe', 'public-reader']);
+const RESULT_PROVIDERS = new Set(['schema-org', 'microdata', 'text-parser', 'instagram-caption', 'linked-recipe', 'public-reader']);
 const SOURCE_KINDS = new Set(['instagram-post', 'creator-profile', 'recipe-page']);
-const TRACKING_PARAMETERS = new Set(['igsh', 'igshid', 'fbclid', 'gclid', 'mc_cid', 'mc_eid']);
+// Mirrors the importer's list so the client and the Action agree on the canonical URL.
+const TRACKING_PARAMETERS = new Set(['igsh', 'igshid', 'fbclid', 'gclid', 'dclid', 'msclkid', 'twclid', 'ttclid', 'yclid', 'mc_cid', 'mc_eid', 'smid', 'sgrp', 'ref', 'ref_src', 'ref_url']);
 
 export interface GitHubImportOptions {
   onProgress?: (stage: 'queued' | 'reading' | 'structuring') => void;
@@ -50,9 +58,23 @@ interface SuccessfulQueueResult {
   status: 'success' | 'partial';
   draft: RecipeDraft;
   warnings: string[];
-  provider: 'schema-org' | 'instagram-caption' | 'linked-recipe' | 'public-reader';
+  provider: 'schema-org' | 'microdata' | 'text-parser' | 'instagram-caption' | 'linked-recipe' | 'public-reader';
   sourcesChecked: CheckedSource[];
   completedAt: string;
+  importerVersion: number | null;
+}
+
+function parseImporterVersion(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && /^\d+(?:\.\d+)?$/.test(value)) return Number(value);
+  return null;
+}
+
+function staleImporterWarning(connection: StoredGitHubConnection, version: number | null): string | null {
+  if (version !== null && version >= EXPECTED_IMPORTER_VERSION) return null;
+  return `Your private recipe importer is out of date (version ${version ?? 1}; Savor expects ${EXPECTED_IMPORTER_VERSION}). `
+    + `Update .github/workflows/savor-recipe-import.yml in ${connection.owner}/${connection.repo} to point at the newest Savor commit `
+    + 'so NYT Cooking, Instagram, and food-blog links import reliably.';
 }
 
 export class GitHubImportError extends Error {
@@ -179,7 +201,46 @@ function isCheckedSource(value: unknown): value is CheckedSource {
     && isString(value.label, 500);
 }
 
-function parseDraft(value: unknown): RecipeDraft {
+// An importer that is a little older or a page with an absurdly long line must
+// not void a whole import; over-long text is trimmed to the limits instead.
+function clampText(value: unknown, max: number): unknown {
+  return typeof value === 'string' && value.length > max ? value.slice(0, max) : value;
+}
+
+function clampDraft(input: unknown): unknown {
+  if (!isObject(input)) return input;
+  const value = structuredClone(input) as Record<string, unknown>;
+  value.title = clampText(value.title, 1_000);
+  value.description = clampText(value.description, 20_000);
+  value.notes = clampText(value.notes, 50_000);
+  for (const key of ['sourceName', 'author', 'cuisine']) value[key] = clampText(value[key], 500);
+  for (const key of ['categories', 'tags']) {
+    if (Array.isArray(value[key])) value[key] = (value[key] as unknown[]).slice(0, 100).map((item) => clampText(item, 500));
+  }
+  if (Array.isArray(value.ingredients)) {
+    value.ingredients = value.ingredients.slice(0, 500).map((item) => {
+      if (!isObject(item)) return item;
+      const ingredient = { ...item };
+      ingredient.rawText = clampText(ingredient.rawText, 2_000);
+      for (const key of ['ingredientName', 'normalizedIngredient', 'descriptor', 'preparation', 'section', 'note']) ingredient[key] = clampText(ingredient[key], 500);
+      for (const key of ['unit', 'normalizedUnit']) ingredient[key] = clampText(ingredient[key], 100);
+      return ingredient;
+    });
+  }
+  if (Array.isArray(value.instructions)) {
+    value.instructions = value.instructions.slice(0, 500).map((item) => {
+      if (!isObject(item)) return item;
+      return { ...item, text: clampText(item.text, 10_000), section: clampText(item.section, 500) };
+    });
+  }
+  if (Array.isArray(value.sourceLinks)) {
+    value.sourceLinks = value.sourceLinks.slice(0, 20).map((item) => (isObject(item) ? { ...item, label: clampText(item.label, 500) } : item));
+  }
+  return value;
+}
+
+function parseDraft(input: unknown): RecipeDraft {
+  const value = clampDraft(input);
   if (!isObject(value)
     || !isString(value.id, 200)
     || !isString(value.title, 1_000)
@@ -247,8 +308,22 @@ function parseQueueResult(value: unknown, jobId: string, sourceUrl: string): Suc
   }
   const draft = parseDraft(value.draft);
   const sourcesChecked = parseCheckedSources(value.sourcesChecked);
-  if (draft.sourceURL !== sourceUrl || !sourcesChecked.some((source) => source.url === sourceUrl)) {
+  // The importer may have followed a redirect (a trailing slash, a moved page)
+  // or stripped a tracking parameter the app did not know about; that is still
+  // the page that was asked for as long as the same resource appears among
+  // the sources it checked for this job.
+  const knownUrls = [sourceUrl, ...sourcesChecked.map((source) => source.url), ...(draft.sourceLinks ?? []).map((link) => link.url)];
+  if (!sourcesChecked.some((source) => sameResource(source.url, sourceUrl)) || (draft.sourceURL && !knownUrls.some((url) => sameResource(url, draft.sourceURL ?? '')))) {
     throw new GitHubImportError('GitHub returned recipe details for a different source link. Nothing was imported.');
+  }
+  if (draft.sourceURL && draft.sourceURL !== sourceUrl) {
+    const finalUrl = draft.sourceURL;
+    draft.sourceURL = sourceUrl;
+    if (!draft.sourceLinks?.some((link) => link.url === finalUrl)) {
+      let host = 'the page';
+      try { host = new URL(finalUrl).hostname.replace(/^www\./, ''); } catch { /* keep fallback */ }
+      draft.sourceLinks = [...(draft.sourceLinks ?? []), { kind: 'recipe-page', url: finalUrl, label: `Recipe page on ${host}` }];
+    }
   }
   return {
     version: 1,
@@ -259,7 +334,21 @@ function parseQueueResult(value: unknown, jobId: string, sourceUrl: string): Suc
     provider: value.provider as SuccessfulQueueResult['provider'],
     sourcesChecked,
     completedAt: value.completedAt,
+    importerVersion: parseImporterVersion(value.importerVersion),
   };
+}
+
+// Two URLs name the same page when host and path agree; query strings carry
+// share-tracking noise that either side may have removed.
+function sameResource(first: string, second: string): boolean {
+  try {
+    const a = new URL(first);
+    const b = new URL(second);
+    const path = (url: URL) => url.pathname.replace(/\/+$/, '') || '/';
+    return a.hostname.replace(/^www\./, '') === b.hostname.replace(/^www\./, '') && path(a) === path(b);
+  } catch {
+    return first === second;
+  }
 }
 
 function abortError(): DOMException {
@@ -352,6 +441,27 @@ async function waitForPoll(delay: number, signal?: AbortSignal): Promise<void> {
   });
 }
 
+async function cleanupImportFiles(
+  connection: StoredGitHubConnection,
+  token: string,
+  files: Array<{ path: string; sha: string | null }>,
+): Promise<void> {
+  for (const file of files) {
+    if (!file.sha) return;
+    try {
+      await githubRequest(connection, token, file.path, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: `Clean up Savor recipe import ${file.path.split('/').pop()}`, sha: file.sha, branch: connection.branch }),
+      });
+    } catch {
+      // Stop here: leaving both files behind is harmless, because the importer
+      // skips requests that already have results.
+      return;
+    }
+  }
+}
+
 function validateSourceUrl(value: string): string {
   const clean = value.trim();
   if (!isSafeHttpUrl(clean)) throw new GitHubImportError('Paste a complete public recipe or Instagram URL beginning with https://.');
@@ -380,7 +490,7 @@ export async function queueGitHubRecipeImport(
   const request = JSON.stringify({ version: 1, jobId, url: sourceUrl, createdAt: new Date().toISOString() });
   const requestPath = `${REQUEST_ROOT}/${jobId}.json`;
   const resultPath = `${RESULT_ROOT}/${jobId}.json`;
-  const timeoutMs = Math.min(Math.max(options.timeoutMs ?? DEFAULT_TIMEOUT_MS, 15_000), 180_000);
+  const timeoutMs = Math.min(Math.max(options.timeoutMs ?? DEFAULT_TIMEOUT_MS, 15_000), MAX_TIMEOUT_MS);
   const deadline = Date.now() + timeoutMs;
 
   options.onProgress?.('queued');
@@ -388,7 +498,7 @@ export async function queueGitHubRecipeImport(
   if (workflow === null) {
     throw new GitHubImportError('The private data repository is missing Savor’s recipe-import workflow. Install or restore .github/workflows/savor-recipe-import.yml, then try again.');
   }
-  await githubRequest(connection, token.trim(), requestPath, {
+  const created = await githubRequest(connection, token.trim(), requestPath, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -397,6 +507,7 @@ export async function queueGitHubRecipeImport(
       branch: connection.branch,
     }),
   }, options.signal);
+  const requestSha = isObject(created) && isObject(created.content) && typeof created.content.sha === 'string' ? created.content.sha : null;
 
   options.onProgress?.('reading');
   const readResult = async (): Promise<ImportResult | null> => {
@@ -413,12 +524,22 @@ export async function queueGitHubRecipeImport(
       throw new GitHubImportError('GitHub returned an unreadable recipe-import result.');
     }
     const result = parseQueueResult(parsed, jobId, sourceUrl);
+    // The job is done; tidy both files so the private repository does not
+    // accumulate one request and one result per recipe forever. The request
+    // goes first: a result without its request is harmless, but a request
+    // without its result would be processed again. Best effort.
+    void cleanupImportFiles(connection, token.trim(), [
+      { path: requestPath, sha: requestSha },
+      { path: resultPath, sha: typeof file.sha === 'string' ? file.sha : null },
+    ]);
+    const staleWarning = staleImporterWarning(connection, result.importerVersion);
     return {
       draft: result.draft,
-      warnings: result.warnings,
+      warnings: staleWarning ? [...result.warnings, staleWarning] : result.warnings,
       provider: result.provider,
       sourcesChecked: result.sourcesChecked,
       completedAt: result.completedAt,
+      importerVersion: result.importerVersion === null ? undefined : String(result.importerVersion),
     };
   };
   while (Date.now() < deadline) {
@@ -432,6 +553,6 @@ export async function queueGitHubRecipeImport(
   if (finalResult) return finalResult;
 
   throw new GitHubImportError(
-    'GitHub did not finish extracting this recipe within two minutes. Check that the recipe-import workflow is enabled in the private data repository, then try again.',
+    'GitHub did not finish extracting this recipe in time. Check that the recipe-import workflow is enabled in the private data repository, then try again. You can also paste the recipe text instead.',
   );
 }
