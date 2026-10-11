@@ -1,7 +1,7 @@
 'use client';
 
 import { CalendarPlus, ChevronLeft, ChevronRight, ClipboardList, Clock3, Mail, Plus, ShieldCheck, ShoppingBasket, Sparkles, Trash2, X } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { buildSundayPrepRecommendation, optimizeMealWeek, type RecommendedMeal } from '../../lib/meal-week-optimizer';
 import { formatSkylightWeek, skylightEmailDraftUrl } from '../../lib/skylight';
 import { MEAL_TYPES, type GroceryItem, type MealPlanEntry, type MealType, type Recipe, type SkylightEmailApp } from '../../lib/types';
@@ -55,6 +55,17 @@ export function MealPlannerView({
     const start = addDays(startOfWeek(new Date()), weekOffset * 7);
     return Array.from({ length: 7 }, (_, index) => addDays(start, index));
   }, [weekOffset]);
+
+  useEffect(() => {
+    if (!addOpen && !skylightOpen) return undefined;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      setAddOpen(false);
+      setSkylightOpen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [addOpen, skylightOpen]);
   const startKey = key(days[0]);
   const endKey = key(days[6]);
   const weekEntries = entries.filter((entry) => entry.date >= startKey && entry.date <= endKey);
@@ -76,10 +87,13 @@ export function MealPlannerView({
     [endKey, entries, groceryItems, recipes, startKey],
   );
 
-  function openAdd(date: string) {
-    setChosenDate(date);
-    setRecipeId(recipes[0]?.id ?? '');
-    setMealType('dinner');
+  // "Plan a meal" from the toolbar starts on the first open day of the week
+  // being viewed (never a day that has passed) and keeps the last meal type.
+  function openAdd(date?: string) {
+    const todayKey = key(new Date());
+    const fallback = days.find((day) => key(day) >= todayKey) ?? days[0];
+    setChosenDate(date ?? key(fallback));
+    setRecipeId((current) => (recipes.some((recipe) => recipe.id === current) ? current : recipes[0]?.id ?? ''));
     setAddOpen(true);
   }
 
@@ -99,10 +113,10 @@ export function MealPlannerView({
           {weekOffset !== 0 ? <button className="today-button" type="button" onClick={() => setWeekOffset(0)}>This week</button> : null}
         </div>
         <div className="planner-actions">
-          <button className="button button-secondary" type="button" onClick={() => openAdd(key(new Date()))}><CalendarPlus size={17} />Plan a meal</button>
-          <button className="button button-secondary" type="button" disabled={!weekEntries.length} onClick={() => setOptimizeOpen(true)}><Sparkles size={17} />Optimize week</button>
+          <button className="button button-secondary" type="button" onClick={() => openAdd()}><CalendarPlus size={17} />Plan a meal</button>
+          <button className="button button-secondary" type="button" disabled={!weekEntries.length} onClick={() => setOptimizeOpen(true)}><Sparkles size={17} />Optimize<span className="long-label"> week</span></button>
           <button className="button button-secondary" type="button" disabled={!weekEntries.length} onClick={() => setPrepOpen(true)}><ClipboardList size={17} />Prep</button>
-          <button className="button button-secondary" type="button" disabled={!skylightDraft.mealCount} onClick={() => setSkylightOpen(true)}><Mail size={17} />Send week to Skylight</button>
+          <button className="button button-secondary" type="button" disabled={!skylightDraft.mealCount} onClick={() => setSkylightOpen(true)}><Mail size={17} /><span className="long-label">Send week to </span>Skylight</button>
           <button className="button button-primary" type="button" disabled={!plannedRecipeIds.length} onClick={() => onGenerateGroceries(weekEntries)}><ShoppingBasket size={17} />Make grocery list</button>
         </div>
       </div>
@@ -150,9 +164,9 @@ export function MealPlannerView({
             <p className="eyebrow">Meal plan</p>
             <h2 id="plan-dialog-title">What sounds good?</h2>
             <label className="field-label">Recipe<select value={recipeId} onChange={(event) => setRecipeId(event.target.value)}>{recipes.map((recipe) => <option value={recipe.id} key={recipe.id}>{recipe.title}</option>)}</select></label>
-            <label className="field-label">Date<input type="date" value={chosenDate} onChange={(event) => setChosenDate(event.target.value)} /></label>
+            <label className="field-label">Date<input type="date" required value={chosenDate} onChange={(event) => setChosenDate(event.target.value)} /></label>
             <label className="field-label">Meal type<select value={mealType} onChange={(event) => setMealType(event.target.value as MealType)}>{MEAL_TYPES.map((type) => <option value={type} key={type}>{type.charAt(0).toUpperCase() + type.slice(1)}</option>)}</select></label>
-            <button className="button button-primary full-button" type="button" disabled={!recipeId} onClick={addMeal}>Add to meal plan</button>
+            <button className="button button-primary full-button" type="button" disabled={!recipeId || !chosenDate} onClick={addMeal}>Add to meal plan</button>
           </section>
         </div>
       ) : null}

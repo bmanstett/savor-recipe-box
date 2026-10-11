@@ -4,7 +4,7 @@ import {
   CalendarPlus, Check, Clock3, Grid2X2, Heart, List, Plus, Search,
   ShoppingBasket, SlidersHorizontal, X,
 } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { MEAL_TYPES, type MealType, type Recipe } from '../../lib/types';
 
 export type Filter = 'all' | 'favorites' | 'quick' | 'recent';
@@ -17,7 +17,7 @@ function tomorrow(): string {
 
 export function RecipesView({
   recipes, query, onQueryChange, filter, onFilterChange, onOpenRecipe, onToggleFavorite, onAddRecipe,
-  onPlanRecipes, onGenerateGroceries,
+  onPlanRecipes, onAddToGroceries,
 }: {
   recipes: Recipe[];
   query: string;
@@ -28,7 +28,7 @@ export function RecipesView({
   onToggleFavorite: (recipe: Recipe) => void;
   onAddRecipe: () => void;
   onPlanRecipes: (ids: string[], startDate?: string, mealType?: MealType) => Promise<void>;
-  onGenerateGroceries: (ids?: string[]) => Promise<void>;
+  onAddToGroceries: (ids: string[]) => Promise<void>;
 }) {
   const [layout, setLayout] = useState<'grid' | 'list'>('grid');
   const [selecting, setSelecting] = useState(false);
@@ -36,6 +36,13 @@ export function RecipesView({
   const [planOpen, setPlanOpen] = useState(false);
   const [startDate, setStartDate] = useState(tomorrow());
   const [mealType, setMealType] = useState<MealType>('dinner');
+
+  useEffect(() => {
+    if (!planOpen) return undefined;
+    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') setPlanOpen(false); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [planOpen]);
 
   const visible = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
@@ -75,13 +82,14 @@ export function RecipesView({
   }
 
   return (
-    <section className="recipes-view">
+    <section className={selecting ? 'recipes-view selecting' : 'recipes-view'}>
       <div className="recipes-toolbar">
-        <label className="mobile-recipe-search">
-          <Search size={17} />
-          <span className="sr-only">Search recipes</span>
-          <input type="search" placeholder="Search your cookbook" value={query} onChange={(event) => onQueryChange(event.target.value)} />
-        </label>
+        <form className="mobile-recipe-search" role="search" onSubmit={(event) => { event.preventDefault(); (event.currentTarget.querySelector('input') as HTMLInputElement | null)?.blur(); }}>
+          <Search size={17} aria-hidden="true" />
+          <label className="sr-only" htmlFor="cookbook-search">Search recipes</label>
+          <input id="cookbook-search" type="search" placeholder="Search your cookbook" enterKeyHint="search" autoCorrect="off" autoCapitalize="none" value={query} onChange={(event) => onQueryChange(event.target.value)} />
+          {query ? <button className="search-clear" type="button" aria-label="Clear search" onClick={() => onQueryChange('')}><X size={16} /></button> : null}
+        </form>
         <div className="filter-row" aria-label="Recipe filters">
           {([
             ['all', 'All recipes'], ['favorites', 'Favorites'], ['quick', 'Under 30 min'], ['recent', 'Recently added'],
@@ -134,11 +142,15 @@ export function RecipesView({
         </div>
       )}
 
-      {selecting && selected.size ? (
+      {selecting ? (
         <div className="selection-action-bar" role="region" aria-label="Selected recipe actions">
-          <div><strong>{selected.size}</strong><span>{selected.size === 1 ? 'recipe selected' : 'recipes selected'}</span></div>
-          <button className="button button-secondary" type="button" onClick={() => setPlanOpen(true)}><CalendarPlus size={17} />Add to meal plan</button>
-          <button className="button button-primary" type="button" onClick={async () => { await onGenerateGroceries([...selected]); leaveSelection(); }}><ShoppingBasket size={17} />Create grocery list</button>
+          <div>
+            <strong>{selected.size}</strong>
+            <span>{selected.size === 1 ? 'recipe selected' : selected.size ? 'recipes selected' : 'Tap recipes to plan them or shop for them'}</span>
+            {visible.length && selected.size < visible.length ? <button className="select-all" type="button" onClick={() => setSelected(new Set(visible.map((recipe) => recipe.id)))}>Select all {visible.length}</button> : null}
+          </div>
+          <button className="button button-secondary" type="button" disabled={!selected.size} onClick={() => setPlanOpen(true)}><CalendarPlus size={17} />Plan</button>
+          <button className="button button-primary" type="button" disabled={!selected.size} onClick={async () => { await onAddToGroceries([...selected]); leaveSelection(); }}><ShoppingBasket size={17} />Add to groceries</button>
         </div>
       ) : null}
 
@@ -149,9 +161,9 @@ export function RecipesView({
             <p className="eyebrow">Plan {selected.size} {selected.size === 1 ? 'meal' : 'meals'}</p>
             <h2 id="batch-plan-title">Choose the first date.</h2>
             <p>Additional recipes will fill the following days at the same meal time. You can move them any time.</p>
-            <label className="field-label">Starting date<input type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} /></label>
+            <label className="field-label">Starting date<input type="date" required value={startDate} onChange={(event) => setStartDate(event.target.value)} /></label>
             <label className="field-label">Meal type<select value={mealType} onChange={(event) => setMealType(event.target.value as MealType)}>{MEAL_TYPES.map((type) => <option value={type} key={type}>{type.charAt(0).toUpperCase() + type.slice(1)}</option>)}</select></label>
-            <button className="button button-primary full-button" type="button" onClick={submitPlan}>Add to meal plan</button>
+            <button className="button button-primary full-button" type="button" disabled={!startDate} onClick={submitPlan}>Add to meal plan</button>
           </section>
         </div>
       ) : null}

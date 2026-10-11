@@ -28,15 +28,22 @@ jobs:
           ref: main
           fetch-depth: 0
 
+      # The importer writes one result file per request as it goes and stops
+      # dequeuing after max-run-minutes. If it still crashes or is cancelled,
+      # the results already written must reach the repository, so this step
+      # never blocks the commit and push steps below.
       - name: Process pending recipe imports
         id: importer
+        continue-on-error: true
         uses: bmanstett/savor-recipe-box/.github/actions/process-recipe-import@REPLACE_WITH_IMPORTER_COMMIT_FULL_SHA
         with:
           root: .
-          max-jobs: '100'
+          max-jobs: '20'
+          max-run-minutes: '15'
 
       - name: Commit generated results
         id: commit
+        if: always()
         shell: bash
         run: |
           set -euo pipefail
@@ -51,7 +58,7 @@ jobs:
           echo "created=true" >> "$GITHUB_OUTPUT"
 
       - name: Rebase and push results
-        if: steps.commit.outputs.created == 'true'
+        if: always() && steps.commit.outputs.created == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -65,3 +72,8 @@ jobs:
             sleep $((attempt * 2))
           done
           exit 1
+
+      - name: Report deferred requests
+        if: always() && steps.importer.outputs.deferred != '' && steps.importer.outputs.deferred != '0'
+        shell: bash
+        run: echo "::notice::${{ steps.importer.outputs.deferred }} import request(s) were deferred to the next run."

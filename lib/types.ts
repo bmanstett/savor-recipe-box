@@ -35,6 +35,16 @@ export interface Ingredient {
   section: string | null;
   confidence: number;
   needsReview: boolean;
+  /** Upper bound when the line gave a range such as "2-3 cloves"; quantity holds the lower bound. */
+  quantityMax?: Rational | null;
+  /** The amount came from a word ("a splash", "a handful", "a few") or a range, not an exact number. */
+  approximate?: boolean;
+  /** "to taste", "as needed", "for serving": the cook decides the amount. */
+  toTaste?: boolean;
+  /** Never belongs on a shopping list (water, ice, trace amounts of staples). */
+  skipGrocery?: boolean;
+  /** Parenthetical or trailing note that is not part of the ingredient name, e.g. "14 oz can" or "for garnish". */
+  note?: string | null;
 }
 
 export interface Instruction {
@@ -130,6 +140,8 @@ export interface GroceryItem {
   revision: number;
   dateModified: string;
   purchasedAt?: string | null;
+  /** Added from a recipe outside the meal plan; survives "Refresh from meal plan" until checked off and cleared. */
+  pinned?: boolean;
 }
 
 export interface HouseholdPreferences {
@@ -151,7 +163,9 @@ export interface BootstrapData {
 export interface ImportResult {
   draft: RecipeDraft;
   warnings: string[];
-  provider: 'schema-org' | 'text-parser' | 'manual-photo' | 'instagram-caption' | 'linked-recipe' | 'public-reader';
+  provider: 'schema-org' | 'microdata' | 'text-parser' | 'manual-photo' | 'instagram-caption' | 'linked-recipe' | 'public-reader';
   sourcesChecked?: RecipeSourceLink[];
   completedAt?: string;
+  /** Version string reported by the GitHub Action importer; absent for results from older importers. */
+  importerVersion?: string;
 }

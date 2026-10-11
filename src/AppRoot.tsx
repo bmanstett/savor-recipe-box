@@ -117,6 +117,29 @@ function recordDeletions(current: BootstrapData, next: BootstrapData, previous: 
   };
 }
 
+const SETTINGS_PROMPTED_KEY = 'savor:settings-prompted';
+
+// Settings should open by itself only when there is something to do there: the
+// very first launch (to offer sync), or a saved connection whose token is gone.
+// A household that chose to stay local-only must not be sent to Settings on
+// every single launch.
+function shouldOpenSettingsOnLaunch(
+  connection: StoredGitHubConnection | null,
+  token: string,
+  phase: SyncPresentation['phase'],
+): boolean {
+  if (connection && !token) return true;
+  if (phase === 'needs-token') return true;
+  if (connection) return false;
+  try {
+    if (window.localStorage.getItem(SETTINGS_PROMPTED_KEY)) return false;
+    window.localStorage.setItem(SETTINGS_PROMPTED_KEY, new Date().toISOString());
+  } catch {
+    // Private browsing or blocked storage: fall back to prompting, which is harmless.
+  }
+  return true;
+}
+
 const LOCAL_STATUS: SyncPresentation = {
   phase: 'local',
   label: 'Saved on this device',
@@ -134,6 +157,7 @@ export function AppRoot() {
   const [connection, setConnection] = useState<StoredGitHubConnection | null>(null);
   const [token, setToken] = useState('');
   const [sync, setSync] = useState<SyncPresentation>(LOCAL_STATUS);
+  const [startInSettings, setStartInSettings] = useState(false);
   const snapshotRef = useRef<LocalSnapshot | null>(null);
   const syncingRef = useRef(false);
   const initialPullRef = useRef(false);
@@ -162,6 +186,9 @@ export function AppRoot() {
       setSnapshot(nextSnapshot);
       setConnection(storedConnection);
       setToken(storedConnection ? storedToken ?? '' : '');
+      // Decided once here, not during render, so StrictMode's double render
+      // cannot consume the first-launch prompt before it is shown.
+      setStartInSettings(shouldOpenSettingsOnLaunch(storedConnection, storedToken ?? '', storedConnection && !storedToken ? 'needs-token' : 'local'));
       if (storedCredential && !credentialMatches) void clearGitHubCredential(storedCredential.id).catch(() => undefined);
       if (storedConnection && !storedToken) {
         setSync(TOKEN_REQUIRED_STATUS);
@@ -183,10 +210,25 @@ export function AppRoot() {
   useEffect(() => {
     if (!snapshot || !localSnapshotAvailableRef.current) return;
     snapshotRef.current = snapshot;
-    const timer = window.setTimeout(() => saveLocalSnapshot(snapshot).catch(() => {
+    const persist = () => saveLocalSnapshot(snapshot).catch(() => {
       setSync({ phase: 'error', label: 'Local save failed', message: 'Browser storage could not save this change. Export a backup before closing Savor.' });
-    }), 250);
-    return () => window.clearTimeout(timer);
+    });
+    const timer = window.setTimeout(persist, 250);
+    // iOS can suspend an installed app the moment it leaves the foreground,
+    // which would swallow the debounce; flush the pending save first.
+    const flush = () => {
+      if (document.visibilityState === 'hidden') {
+        window.clearTimeout(timer);
+        void persist();
+      }
+    };
+    document.addEventListener('visibilitychange', flush);
+    window.addEventListener('pagehide', flush);
+    return () => {
+      window.clearTimeout(timer);
+      document.removeEventListener('visibilitychange', flush);
+      window.removeEventListener('pagehide', flush);
+    };
   }, [snapshot]);
 
   const runSync = useCallback(async (
@@ -277,7 +319,14 @@ export function AppRoot() {
     connectionGenerationRef.current = connectionGeneration;
     setSync({ phase: 'connecting', label: 'Checking GitHub…', message: 'Verifying the private data repository and token permissions.' });
     const normalizedToken = input.token.trim();
-    const result = await validateGitHubConnection(normalizedToken, input.owner, input.repo);
+    let result;
+    try {
+      result = await validateGitHubConnection(normalizedToken, input.owner, input.repo);
+    } catch (error) {
+      // Settings shows the error itself; the header pill must not stay on "Checking…".
+      if (connectionGeneration === connectionGenerationRef.current) setSync(connection ? TOKEN_REQUIRED_STATUS : LOCAL_STATUS);
+      throw error;
+    }
     if (connectionGeneration !== connectionGenerationRef.current) return;
     const credential = await saveGitHubCredentials(result.connection, normalizedToken);
     if (connectionGeneration !== connectionGenerationRef.current) {
@@ -299,7 +348,7 @@ export function AppRoot() {
     snapshotRef.current = withUser;
     setSnapshot(withUser);
     await runSync(withUser, result.connection, normalizedToken);
-  }, [runSync]);
+  }, [connection, runSync]);
 
   const disconnect = useCallback(async () => {
     if (disconnectingRef.current) return;
@@ -379,7 +428,7 @@ export function AppRoot() {
       connection={connection}
       hasGitHubToken={Boolean(token)}
       sync={sync}
-      startInSettings={!connection || !token || sync.phase === 'needs-token'}
+      startInSettings={startInSettings || sync.phase === 'needs-token'}
       onConnectGitHub={connect}
       onDisconnectGitHub={disconnect}
       onSyncNow={syncNow}
