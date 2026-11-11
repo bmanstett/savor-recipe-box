@@ -6,6 +6,7 @@ import {
   Star, Trash2, Users, Utensils, X,
 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
+import { RecipeImage } from './RecipeImage';
 import { formatIngredient, rational } from '../../lib/domain';
 import { MEAL_TYPES, type MealType, type Recipe, type RecipeSourceLink } from '../../lib/types';
 
@@ -180,7 +181,7 @@ export function RecipeDetail({
       <div className="detail-scroll">
         <section className="detail-hero">
           <div className="detail-image">
-            {recipe.heroImage ? <img alt={`${recipe.title}, finished dish`} src={recipe.heroImage} /> : <span className="image-fallback" />}
+            <RecipeImage recipe={recipe} alt={`${recipe.title}, finished dish`} showCredit />
             <button className={recipe.favorite ? 'detail-favorite active' : 'detail-favorite'} aria-label={recipe.favorite ? 'Remove from favorites' : 'Add to favorites'} type="button" onClick={onFavorite}><Heart size={19} fill={recipe.favorite ? 'currentColor' : 'none'} /></button>
           </div>
           <div className="detail-intro">

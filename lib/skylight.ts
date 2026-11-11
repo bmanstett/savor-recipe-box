@@ -47,7 +47,10 @@ export function formatSkylightWeek(
     .sort((first, second) => first.date.localeCompare(second.date)
       || MEAL_TYPE_ORDER[first.mealType] - MEAL_TYPE_ORDER[second.mealType]);
   const lines = [
-    'SAVOR WEEKLY MEAL PLAN',
+    'WEEKLY MENU — DATED MEAL SCHEDULE',
+    'Add these meal names to the Skylight Meal Planner on the listed dates and in the listed meal slots only.',
+    'Do not import, generate, or save recipes to the recipe book or recipe history.',
+    '',
     `Week: ${longDate(startDate)} through ${longDate(endDate)}`,
     '',
   ];
@@ -60,11 +63,10 @@ export function formatSkylightWeek(
       lines.push(longDate(entry.date));
       previousDate = entry.date;
     }
-    lines.push(`${capitalize(entry.mealType)}: ${recipe.title}`);
-    lines.push(`Servings: ${entry.servings ?? recipe.servings ?? 'Not specified'}`);
-    if (recipe.sourceURL) lines.push(`Recipe URL: ${recipe.sourceURL}`);
+    // A recipe URL asks Sidekick to import a recipe. Send only the dated menu,
+    // keeping imported titles on one line so they cannot become extra entries.
+    lines.push(`${capitalize(entry.mealType)}: ${recipe.title.replace(/\s+/g, ' ').trim()}`);
   }
-  lines.push('', 'Please import these dated meals into the Skylight Meal Planner.');
   return {
     body: lines.join('\n'),
     mealCount: planned.length,

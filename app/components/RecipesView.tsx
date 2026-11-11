@@ -5,6 +5,7 @@ import {
   ShoppingBasket, SlidersHorizontal, X,
 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
+import { RecipeImage } from './RecipeImage';
 import { MEAL_TYPES, type MealType, type Recipe } from '../../lib/types';
 
 export type Filter = 'all' | 'favorites' | 'quick' | 'recent';
@@ -118,7 +119,7 @@ export function RecipesView({
               <article className={isSelected ? 'library-card selected' : 'library-card'} key={recipe.id}>
                 <button className="library-card-main" type="button" onClick={() => selecting ? toggleSelection(recipe.id) : onOpenRecipe(recipe)}>
                   <span className="library-image">
-                    {recipe.heroImage ? <img alt="" loading="lazy" src={recipe.heroImage} /> : <span className="image-fallback" />}
+                    <RecipeImage recipe={recipe} alt="" loading="lazy" />
                     {selecting ? <span className={isSelected ? 'selection-mark selected' : 'selection-mark'}><Check size={15} /></span> : null}
                     {recipe.tags[0] ? <span className="recipe-tag-on-image">{recipe.tags[0]}</span> : null}
                   </span>

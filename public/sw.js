@@ -12,10 +12,9 @@ const SHELL_ASSETS = [
   scoped('icons/icon-maskable-512.png'),
   ...BUILD_ASSETS.map(scoped),
 ];
-// Demo photos are nice to have offline but must never block an install.
+// Photos and their credits are useful offline but must never block an install.
 const OPTIONAL_ASSETS = [
-  'recipes/lemon-chicken.jpg', 'recipes/tuscan-pasta.jpg', 'recipes/salmon-bowl.jpg', 'recipes/chicken-tacos.jpg',
-  'recipes/tomato-soup.jpg', 'recipes/bean-salad.jpg', 'recipes/banana-bread.jpg',
+  /* __SAVOR_RECIPE_ASSETS__ */
 ].map(scoped);
 
 self.addEventListener('install', (event) => {
@@ -51,10 +50,13 @@ self.addEventListener('fetch', (event) => {
   if (url.origin !== self.location.origin || !url.pathname.startsWith(`${BASE}/`)) return;
 
   if (request.mode === 'navigate') {
+    // A photo-credit page is its own document, not a replacement app shell.
+    const isRecipeAsset = url.pathname.startsWith(`${BASE}/recipes/`);
+    const cacheKey = isRecipeAsset ? url.pathname : scoped();
     event.respondWith(fetch(request).then((response) => {
-      if (response.ok) caches.open(CACHE_NAME).then((cache) => cache.put(scoped(), response.clone()));
+      if (response.ok) caches.open(CACHE_NAME).then((cache) => cache.put(cacheKey, response.clone()));
       return response;
-    }).catch(() => caches.match(scoped())));
+    }).catch(() => caches.match(cacheKey)));
     return;
   }
 

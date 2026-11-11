@@ -7,6 +7,7 @@ import { formatSkylightWeek, skylightEmailDraftUrl } from '../../lib/skylight';
 import { MEAL_TYPES, type GroceryItem, type MealPlanEntry, type MealType, type Recipe, type SkylightEmailApp } from '../../lib/types';
 import { OptimizeWeekDialog } from './OptimizeWeekDialog';
 import { SundayPrepDialog } from './SundayPrepDialog';
+import { RecipeImage } from './RecipeImage';
 
 function key(value: Date): string {
   return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`;
@@ -138,7 +139,7 @@ export function MealPlannerView({
                   return (
                     <article className="planned-meal" key={entry.id}>
                       <button className="planned-main" type="button" onClick={() => onOpenRecipe(recipe)}>
-                        {recipe.heroImage ? <img alt="" src={recipe.heroImage} /> : <span className="image-fallback" />}
+                        <RecipeImage recipe={recipe} alt="" />
                         <span><small>{entry.mealType.charAt(0).toUpperCase() + entry.mealType.slice(1)}</small><strong>{recipe.title}</strong><em><Clock3 size={12} />{recipe.totalTime ?? recipe.cookTime ?? '—'} min · {entry.servings ?? recipe.servings ?? '—'} servings</em></span>
                       </button>
                       <button className="remove-meal" aria-label={`Remove ${recipe.title} from ${dayKey}`} type="button" onClick={() => onRemoveMeal(entry)}><Trash2 size={14} /></button>
@@ -179,11 +180,11 @@ export function MealPlannerView({
             {skylightEmail ? (
               <>
                 <h2 id="skylight-dialog-title">Review this week before sending</h2>
-                <p id="skylight-dialog-description">Savor will open {skylightEmailApp === 'gmail' ? 'the Gmail app' : 'your device’s default mail app'} with {skylightDraft.mealCount} {skylightDraft.mealCount === 1 ? 'meal' : 'meals'} from {weekLabel}. Nothing is sent until you review the draft and tap Send.</p>
+                <p id="skylight-dialog-description">Savor will open {skylightEmailApp === 'gmail' ? 'the Gmail app' : 'your device’s default mail app'} with {skylightDraft.mealCount} {skylightDraft.mealCount === 1 ? 'meal' : 'meals'} from {weekLabel}: meal names, dates, and breakfast, lunch, snack, or dinner slots. The draft asks Skylight to schedule meals without saving recipes. Review it and tap Send when ready.</p>
                 <div className="github-connect-card">
                   <div className="connected-repo"><span><Mail size={16} /></span><div><strong>{skylightEmail}</strong><small>Skylight device email</small></div></div>
                   <label className="field-label">Send using<select value={skylightEmailApp} onChange={(event) => onChangeSkylightEmailApp(event.target.value as SkylightEmailApp)}><option value="gmail">Gmail app</option><option value="device-default">Device default mail app</option></select><small>Saved immediately on this device. Gmail must be installed when Gmail app is selected.</small></label>
-                  <div className="github-security-note"><ShieldCheck size={18} /><div><strong>Calendar Plus is required</strong><p>Sidekick can occasionally misread a menu. After sending, review Skylight's confirmation email and use Undo Import if anything looks wrong.</p></div></div>
+                  <div className="github-security-note"><ShieldCheck size={18} /><div><strong>Calendar Plus is required</strong><p>Sidekick decides how to import the email. Check its confirmation for the correct dates and meal slots; use Undo Import if it saves recipes or places the menu incorrectly.</p></div></div>
                   <div className="github-connect-actions">
                     <button className="button button-ghost" type="button" onClick={() => setSkylightOpen(false)}>Cancel</button>
                     <a className="button button-primary" href={skylightDraftHref} onClick={() => setSkylightOpen(false)}><Mail size={16} />{skylightEmailApp === 'gmail' ? 'Open Gmail draft' : 'Open email draft'}</a>

@@ -469,7 +469,7 @@ assert.equal(captionResult.provider, 'instagram-caption');
 assert.equal(captionResult.jobId, request.jobId);
 assert.equal(captionResult.importerVersion, IMPORTER_VERSION);
 assert.equal(captionResult.draft.sourceURL, 'https://www.instagram.com/reel/ABC123/');
-assert.equal(captionResult.draft.heroImage, null);
+assert.equal(captionResult.draft.heroImage, 'https://images.example.com/tomato-pasta-cover.jpg');
 assert.deepEqual(captionResult.sourcesChecked.map((source) => source.url), [request.url, 'https://www.instagram.com/reel/ABC123/']);
 assertClientSourceContract(captionResult, request.url);
 
@@ -679,14 +679,14 @@ assert.match(invalidResult.error, /HTTPS/);
 // Second-pass audit: result shapes
 // ---------------------------------------------------------------------------
 
-assert.equal(IMPORTER_VERSION, '2');
+assert.equal(IMPORTER_VERSION, '3');
 const partialHtml = '<html><head><title>Partial Recipe | Site</title><script type="application/ld+json">{"@type":"Recipe","name":"Partial Recipe","recipeIngredient":["1 cup rice","2 cups water"]}</script></head><body><h1>Partial Recipe</h1></body></html>';
 const partialResult = await processImportRequest({ version: 1, jobId: 'partial-001', createdAt: NOW(), url: 'https://www.allrecipes.com/recipe/9/partial/' }, { now: NOW, fetchText: async (url) => page(partialHtml, url) });
 assert.equal(partialResult.status, 'partial');
 assert.equal(partialResult.provider, 'schema-org');
 assert.ok(partialResult.warnings.some((warning) => /Only part of the recipe/.test(warning)));
 for (const result of [nytResult, partialResult, paywallResult, invalidResult]) {
-  assert.equal(result.importerVersion, '2', `a ${result.status} result carries importerVersion`);
+  assert.equal(result.importerVersion, IMPORTER_VERSION, `a ${result.status} result carries importerVersion`);
   assert.equal(result.version, 1);
 }
 
@@ -946,20 +946,94 @@ assert.equal(embeddedResult.status, 'success');
 assert.equal(embeddedResult.draft.heroImage, `data:image/png;base64,${tinyPng.toString('base64')}`);
 assert.match(embeddedResult.draft.heroImage, /^data:image\/(?:jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/, 'the shape the app validator accepts');
 assert.deepEqual(imageCalls, [{ href: 'https://images.example.com/chicken.jpg', profile: 'image', maxBytes: MAX_HERO_IMAGE_BYTES + 1 }], 'one image request');
-const bigImage = await processImportRequest({ version: 1, jobId: 'img-002', createdAt: NOW(), url: 'https://recipes.example.com/post' }, { now: NOW, fetchText: async (url) => page(html, url), fetchBinary: async (url) => ({ status: 200, headers: { 'content-type': 'image/jpeg' }, bytes: Buffer.alloc(MAX_HERO_IMAGE_BYTES + 1, 0xff), truncated: true, url }) });
+const bigImage = await processImportRequest({ version: 1, jobId: 'img-002', createdAt: NOW(), url: 'https://recipes.example.com/post' }, { now: NOW, fetchText: async (url) => page(html, url), fetchBinary: async (url) => ({ status: 200, headers: { 'content-type': 'image/jpeg' }, bytes: Buffer.concat([Buffer.from([0xff, 0xd8, 0xff]), Buffer.alloc(MAX_HERO_IMAGE_BYTES - 2)]), truncated: true, url }) });
 assert.equal(bigImage.draft.heroImage, 'https://images.example.com/chicken.jpg', 'an image over 600 KB stays a hotlink');
 const wrongType = await processImportRequest({ version: 1, jobId: 'img-003', createdAt: NOW(), url: 'https://recipes.example.com/post' }, { now: NOW, fetchText: async (url) => page(html, url), fetchBinary: async (url) => ({ status: 200, headers: { 'content-type': 'image/gif' }, bytes: Buffer.from('GIF89a'), url }) });
-assert.equal(wrongType.draft.heroImage, 'https://images.example.com/chicken.jpg', 'only JPEG, PNG and WebP are embedded');
+assert.equal(wrongType.draft.heroImage, null, 'unsupported photos leave room for the generic dish photo');
 const failingImage = await processImportRequest({ version: 1, jobId: 'img-004', createdAt: NOW(), url: 'https://recipes.example.com/post' }, { now: NOW, fetchText: async (url) => page(html, url), fetchBinary: async () => { throw new Error('image down'); } });
-assert.deepEqual([failingImage.status, failingImage.draft.heroImage], ['success', 'https://images.example.com/chicken.jpg'], 'an image failure never fails the import');
+assert.deepEqual([failingImage.status, failingImage.draft.heroImage], ['success', null], 'a broken photo is cleared without failing the import');
 const sniffedImage = await processImportRequest({ version: 1, jobId: 'img-005', createdAt: NOW(), url: 'https://recipes.example.com/post' }, { now: NOW, fetchText: async (url) => page(html, url), fetchBinary: async (url) => ({ status: 200, headers: { 'content-type': 'application/octet-stream' }, bytes: tinyPng, url }) });
 assert.match(sniffedImage.draft.heroImage, /^data:image\/png;base64,/, 'the type is sniffed from the bytes when the server mislabels it');
 const instagramImageCalls = [];
 const instagramImageHtml = html.replace('https://images.example.com/chicken.jpg', 'https://scontent-lax3-1.cdninstagram.com/v/t51.2885-15/photo.jpg');
 const instagramImage = await processImportRequest({ version: 1, jobId: 'img-006', createdAt: NOW(), url: 'https://recipes.example.com/post' }, { now: NOW, fetchText: async (url) => page(instagramImageHtml, url), fetchBinary: async (url) => { instagramImageCalls.push(String(url)); throw new Error('never'); } });
-assert.equal(instagramImageCalls.length, 0, 'Instagram CDN images are never fetched');
-assert.equal(instagramImage.draft.heroImage, 'https://scontent-lax3-1.cdninstagram.com/v/t51.2885-15/photo.jpg');
-assert.equal(embedResult.draft.heroImage, null, 'caption imports still carry no Instagram image');
+assert.equal(instagramImageCalls.length, 1, 'public Instagram CDN images use the guarded image downloader');
+assert.equal(instagramImage.draft.heroImage, null, 'failed expiring URLs are cleared for the generic photo');
+assert.equal(embedResult.draft.heroImage, 'https://scontent.example/media.jpg', 'caption imports select post media rather than the creator avatar');
+
+// Source-photo coverage: lazy recipe cards, public reel stills, alternate photos and broken URLs.
+const photoPage = `<html><head><meta property="og:image" content="/site-logo.png"></head><body>
+  <h1>Lemon Chicken</h1><p>Ingredients</p><p>1 lb chicken</p><p>Instructions</p><p>Roast the chicken.</p>
+  <aside><img src="/lemon-chicken-ad.jpg" alt="Lemon Chicken"></aside>
+  <div class="related-recipes"><img src="/lemon-chicken-related.jpg" alt="Lemon Chicken"></div>
+  <img src="/avatar.jpg" alt="Lemon Chicken author">
+  <div class="wprm-recipe-image"><img src="/placeholder.gif" data-src="/lemon-chicken-large.jpg"
+    data-srcset="/lemon-chicken-small.jpg 300w, /lemon-chicken-medium.jpg 800w, /lemon-chicken-large.jpg 1800w" alt="Lemon Chicken" width="800" height="600"></div>
+</body></html>`;
+const selectedPhoto = extractRecipeFromHtml(photoPage, new URL('https://recipes.example.com/lemon-chicken'));
+assert.equal(selectedPhoto.chosen.draft.heroImage, 'https://recipes.example.com/lemon-chicken-medium.jpg', 'recipe-card media outranks site logos and unrelated cards; a responsive variant can be persisted');
+const posterEmbed = embedHtml.replace('<img class="EmbeddedMediaImage" src="https://scontent.example/media.jpg" alt="">', '<video poster="https://scontent-lax3-1.cdninstagram.com/v/reel-cover.jpg"></video>');
+const selectedPoster = parseInstagramEmbed(posterEmbed, 'https://www.instagram.com/reel/FIXTURE01/');
+assert.equal(selectedPoster.heroImage, 'https://scontent-lax3-1.cdninstagram.com/v/reel-cover.jpg', 'a public reel poster supplies a still image');
+const reelImageCalls = [];
+const savedPoster = await processImportRequest({ version: 1, jobId: 'img-reel', createdAt: NOW(), url: 'https://www.instagram.com/reel/FIXTURE01/' }, {
+  now: NOW, fetchText: async (url) => page(posterEmbed, url),
+  fetchBinary: async (url, options) => {
+    reelImageCalls.push({ url: String(url), deadline: options.deadline, profile: options.profile });
+    return { status: 200, headers: { 'content-type': 'image/png' }, bytes: tinyPng, url };
+  },
+});
+assert.equal(savedPoster.status, 'success');
+assert.equal(savedPoster.draft.heroImage, `data:image/png;base64,${tinyPng.toString('base64')}`, 'Instagram covers are saved as bytes before their CDN links expire');
+assert.equal(reelImageCalls[0].profile, 'image');
+assert.ok(Number.isFinite(reelImageCalls[0].deadline), 'media downloads inherit the job deadline');
+assert.equal(reelImageCalls.length, 1);
+const contextMedia = { gql_data: { shortcode_media: {
+  display_url: 'https://scontent.example/context-cover.jpg',
+  owner: { username: 'fixture.cook', profile_pic_url: 'https://scontent.example/avatar.jpg' },
+  edge_media_to_caption: { edges: [{ node: { text: embed.caption } }] },
+} } };
+const contextEmbed = `<script>const data = {"contextJSON":${JSON.stringify(JSON.stringify(contextMedia))}};</script>`;
+assert.equal(parseInstagramEmbed(contextEmbed, 'https://www.instagram.com/reel/FIXTURE01/').heroImage, 'https://scontent.example/context-cover.jpg', 'only the post media is read from public context JSON');
+const photoRetryHtml = html.replace('"image": { "@type": "ImageObject", "url": "https://images.example.com/chicken.jpg" }', '"image": ["https://images.example.com/broken.jpg", "https://images.example.com/chicken.jpg"]');
+assert.notEqual(photoRetryHtml, html, 'the retry fixture contains two schema photos');
+const photoRetries = [];
+const retriedPhoto = await processImportRequest({ version: 1, jobId: 'img-retry', createdAt: NOW(), url: 'https://recipes.example.com/post' }, {
+  now: NOW, fetchText: async (url) => page(photoRetryHtml, url), fetchBinary: async (url) => {
+    photoRetries.push(String(url));
+    if (String(url).includes('broken')) throw new Error('HTTP 404');
+    return { status: 200, headers: { 'content-type': 'image/png' }, bytes: tinyPng, url };
+  },
+});
+assert.deepEqual(photoRetries, ['https://images.example.com/broken.jpg', 'https://images.example.com/chicken.jpg']);
+assert.match(retriedPhoto.draft.heroImage, /^data:image\/png;base64,/, 'a broken first photo does not discard other applicable source photos');
+assert.ok(!JSON.stringify(retriedPhoto).includes('photoCandidates'), 'internal retry candidates do not change the app contract');
+const oversizedSocialPhoto = await processImportRequest({ version: 1, jobId: 'img-large-social', createdAt: NOW(), url: 'https://www.instagram.com/reel/FIXTURE01/' }, {
+  now: NOW, fetchText: async (url) => page(posterEmbed, url), fetchBinary: async (url) => ({
+    status: 200, headers: { 'content-type': 'image/png' }, bytes: Buffer.concat([tinyPng, Buffer.alloc(MAX_HERO_IMAGE_BYTES)]), truncated: true, url,
+  }),
+});
+assert.equal(oversizedSocialPhoto.draft.heroImage, null, 'an expiring social URL is not saved when it cannot be persisted');
+const disguisedImage = await processImportRequest({ version: 1, jobId: 'img-login-page', createdAt: NOW(), url: 'https://recipes.example.com/post' }, {
+  now: NOW, fetchText: async (url) => page(html, url), fetchBinary: async (url) => ({ status: 200, headers: { 'content-type': 'image/jpeg' }, bytes: Buffer.from('<html>Log in to see this photo</html>'), url }),
+});
+assert.equal(disguisedImage.draft.heroImage, null, 'an image Content-Type is insufficient without matching image bytes');
+const unsafeImageHtml = html.replace('https://images.example.com/chicken.jpg', 'https://127.0.0.1/private.jpg');
+const unsafeImageCalls = [];
+const unsafeImageResult = await processImportRequest({ version: 1, jobId: 'img-unsafe', createdAt: NOW(), url: 'https://recipes.example.com/post' }, {
+  now: NOW, fetchText: async (url) => page(unsafeImageHtml, url), fetchBinary: async (url) => { unsafeImageCalls.push(String(url)); throw new Error('must not fetch'); },
+});
+assert.equal(unsafeImageResult.status, 'success');
+assert.equal(unsafeImageResult.draft.heroImage, null);
+assert.equal(unsafeImageCalls.length, 0, 'private-address photo URLs never reach the image fetcher');
+const relativeSchemaPhoto = draftFromSchemaRecipe({ '@type': 'Recipe', name: 'Tomato Soup', image: '/photos/tomato-soup.jpg', recipeIngredient: ['2 tomatoes'] }, exampleUrl);
+assert.equal(relativeSchemaPhoto.heroImage, 'https://recipes.example.com/photos/tomato-soup.jpg', 'relative schema images resolve against the recipe page');
+const readerPhotoFixture = await readFixture('reader-page.json');
+const sourcePhotoReader = await processImportRequest({ version: 1, jobId: 'img-reader-fallback', createdAt: NOW(), url: 'https://recipes.example.com/tacos' }, {
+  now: NOW, fetchText: async (url) => page(String(url).startsWith('https://r.jina.ai/') ? readerPhotoFixture : '<html><head><meta property="og:image" content="/photos/tacos.jpg"></head><body>Loading...</body></html>', url),
+});
+assert.equal(sourcePhotoReader.status, 'success');
+assert.equal(sourcePhotoReader.draft.heroImage, 'https://recipes.example.com/photos/tacos.jpg', 'the original page photo survives when the recipe text comes from a rendered fallback');
 
 // ---------------------------------------------------------------------------
 // Second-pass audit: client limits
