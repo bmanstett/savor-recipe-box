@@ -24,8 +24,8 @@ function isIosBrowserTab(): boolean {
 }
 
 export function SettingsSheet({
-  preferences, skylightEmailApp, connection, hasGitHubToken, sync, installAvailable,
-  onInstall, onChangeSkylightEmailApp, onSave, onExport, onImport, onConnectGitHub, onDisconnectGitHub, onSyncNow, onClose,
+  preferences, skylightEmailApp, connection, hasGitHubToken, sync, installAvailable, appUpdateReady, appReloadBlocked,
+  onInstall, onReloadApp, onChangeSkylightEmailApp, onSave, onExport, onImport, onConnectGitHub, onDisconnectGitHub, onSyncNow, onClose,
 }: {
   preferences: HouseholdPreferences;
   skylightEmailApp: SkylightEmailApp;
@@ -33,7 +33,10 @@ export function SettingsSheet({
   hasGitHubToken: boolean;
   sync: SyncPresentation;
   installAvailable: boolean;
+  appUpdateReady: boolean;
+  appReloadBlocked: boolean;
   onInstall: () => Promise<void>;
+  onReloadApp: () => void;
   onChangeSkylightEmailApp: (value: SkylightEmailApp) => void;
   onSave: (preferences: HouseholdPreferences) => Promise<void>;
   onExport: () => Promise<void>;
@@ -57,6 +60,13 @@ export function SettingsSheet({
   const [error, setError] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
   const needsLogin = !connection || !hasGitHubToken || sync.phase === 'needs-token';
+  const hasUnsavedSettings = pantryText !== preferences.pantryStaples.join(', ')
+    || exclude !== preferences.excludePantryStaples
+    || order.join('\n') !== preferences.sectionOrder.join('\n')
+    || skylightEmail !== (preferences.skylightDeviceEmail ?? '')
+    || Boolean(token)
+    || (needsLogin && (owner !== (connection?.owner ?? 'bmanstett') || repo !== (connection?.repo ?? 'savor-data')));
+  const reloadBlocked = appReloadBlocked || hasUnsavedSettings || saving || connecting || disconnecting || importing;
 
   // Settings can sit on top of the add sheet; Escape must close this layer
   // only, so it is handled in the capture phase and stopped there.
@@ -173,7 +183,7 @@ export function SettingsSheet({
             <div className="settings-section-heading"><span><Mail size={19} /></span><div><h2>Skylight Sidekick</h2><p>Send meal names, dates, and meal slots to your Calendar's Meal Planner.</p></div></div>
             <label className="field-label">Skylight device email<input type="email" value={skylightEmail} onChange={(event) => setSkylightEmail(event.target.value)} autoCapitalize="none" autoComplete="off" spellCheck={false} placeholder="your-calendar@ourskylight.com" /><small>Optional. Find this address in the Skylight app. It stays with your private household preferences.</small></label>
             <label className="field-label">Default email app<select value={skylightEmailApp} onChange={(event) => onChangeSkylightEmailApp(event.target.value as SkylightEmailApp)}><option value="gmail">Gmail app</option><option value="device-default">Device default mail app</option></select><small>Saved immediately on this device. Gmail must be installed; device default uses the mail app selected in your phone or computer settings.</small></label>
-            <div className="github-security-note"><ShieldCheck size={18} /><div><strong>Schedule meals only</strong><p>The email includes no recipe links, ingredients, or instructions and asks Skylight to keep meals out of the recipe book. You review and send the draft yourself. Sidekick requires Calendar Plus.</p></div></div>
+            <div className="github-security-note"><ShieldCheck size={18} /><div><strong>Schedule meals only</strong><p>Each email line contains only a date, meal type, and meal name. No recipe links, ingredients, instructions, or extra messages are included. You review and send the draft yourself. Sidekick requires Calendar Plus.</p></div></div>
           </section>
 
           <section className="settings-section">
@@ -200,6 +210,13 @@ export function SettingsSheet({
               <input ref={inputRef} className="sr-only" type="file" accept="application/json,.json" onChange={importFile} />
             </div>
             <p className="backup-note">Imports are validated before anything changes. Merge never deletes current recipes.</p>
+          </section>
+
+          <section className="settings-section">
+            <div className="settings-section-heading"><span><RefreshCw size={19} /></span><div><h2>App updates</h2><p>Sync now refreshes your recipes and meal plans only.</p></div></div>
+            <p className="app-update-help">{appUpdateReady ? 'A new version of Savor is ready. Reload to start using it.' : 'Reload the app while online to load the latest published version.'} Your saved recipes and GitHub login stay on this device.</p>
+            <button className="button button-secondary" type="button" disabled={reloadBlocked} onClick={onReloadApp}><RefreshCw size={16} />Reload app</button>
+            {reloadBlocked ? <p className="app-update-help">Save or close your open recipe, settings, or cooking session before reloading.</p> : null}
           </section>
 
           {installAvailable ? <section className="install-card"><Smartphone size={21} /><div><strong>Install Savor</strong><p>Open it from your home screen or desktop like a native app.</p></div><button className="button button-secondary" type="button" onClick={onInstall}>Install</button></section> : null}

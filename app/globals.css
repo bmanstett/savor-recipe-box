@@ -802,6 +802,16 @@ h1, h2, h3 { text-wrap: balance; }
 .settings-footer { display: flex; min-height: 72px; flex: 0 0 auto; align-items: center; justify-content: flex-end; gap: 8px; padding: 11px 27px calc(11px + var(--safe-bottom)); border-top: 1px solid var(--line); }
 
 /* System states */
+.app-update-notice { position: fixed; right: 22px; bottom: calc(22px + var(--safe-bottom)); z-index: 100; display: flex; width: min(440px, calc(100vw - 32px)); align-items: center; gap: 12px; padding: 12px 14px; border: 1px solid var(--line-strong); border-radius: 15px; background: var(--surface); color: var(--ink); box-shadow: var(--shadow-float); }
+.app-update-notice > div { min-width: 0; flex: 1; }
+.app-update-notice strong, .app-update-notice span { display: block; }
+.app-update-notice strong { font-size: 12px; line-height: 1.4; }
+.app-update-notice span { margin-top: 3px; color: var(--muted); font-size: 11px; line-height: 1.4; }
+.app-update-notice .button { flex: 0 0 auto; min-height: 44px; }
+.app-update-notice ~ .toast { bottom: calc(125px + var(--safe-bottom)); }
+.app-update-help { margin: 0 0 12px; color: var(--muted); font-size: 12px; line-height: 1.5; }
+.app-update-help:last-child { margin: 10px 0 0; }
+.skylight-email-preview { max-height: 200px; margin: 14px 0; overflow: auto; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--paper); color: var(--ink); font: inherit; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
 .toast { position: fixed; inset: auto 22px calc(22px + var(--safe-bottom)) auto; z-index: 180; display: flex; min-height: 50px; max-width: min(420px, calc(100vw - 32px)); align-items: center; gap: 12px; padding: 9px 10px 9px 16px; border: 1px solid rgb(255 255 255 / 10%); border-radius: 15px; background: #2d3e35; color: white; box-shadow: var(--shadow-float); font-size: 9px; font-weight: 650; }
 .toast > button:not(.toast-close) { min-height: 32px; padding: 0 9px; border-radius: 9px; background: rgb(255 255 255 / 13%); color: #f1c3ae; font-size: 8px; font-weight: 800; }
 .toast-close { display: grid; width: 30px; height: 30px; place-items: center; border-radius: 9px; background: transparent; color: rgb(255 255 255 / 65%); }
@@ -1000,6 +1010,8 @@ h1, h2, h3 { text-wrap: balance; }
   .cooking-nav .button { min-width: 0; flex: 1; padding-inline: 10px; }
   .floating-ingredients-button { bottom: calc(84px + var(--safe-bottom)); }
   .toast { inset: auto 12px calc(90px + var(--safe-bottom)); max-width: none; }
+  .app-update-notice { right: 12px; left: 12px; bottom: calc(90px + var(--safe-bottom)); width: auto; }
+  .app-update-notice ~ .toast { bottom: calc(205px + var(--safe-bottom)); }
 }
 
 @media (max-width: 430px) {
@@ -1415,6 +1427,7 @@ h1, h2, h3 { text-wrap: balance; }
 }
 
 @media print {
+  .app-update-notice { display: none !important; }
   body { background: white; }
   body:not(.print-grocery) .savor-shell > .app-sidebar, body:not(.print-grocery) .savor-shell > .app-main, body:not(.print-grocery) .mobile-tabbar, body:not(.print-grocery) .detail-topbar, body:not(.print-grocery) .detail-primary-actions, body:not(.print-grocery) .detail-favorite, body:not(.print-grocery) .ingredients-column .button, body:not(.print-grocery) .instructions-heading .button, body:not(.print-grocery) .timer-suggestion, body:not(.print-grocery) .toast { display: none !important; }
   .recipe-detail-layer { position: static; display: block; background: white; }
