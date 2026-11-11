@@ -46,26 +46,16 @@ export function formatSkylightWeek(
     .filter((entry) => entry.date >= startDate && entry.date <= endDate && recipesById.has(entry.recipeId))
     .sort((first, second) => first.date.localeCompare(second.date)
       || MEAL_TYPE_ORDER[first.mealType] - MEAL_TYPE_ORDER[second.mealType]);
-  const lines = [
-    'WEEKLY MENU — DATED MEAL SCHEDULE',
-    'Add these meal names to the Skylight Meal Planner on the listed dates and in the listed meal slots only.',
-    'Do not import, generate, or save recipes to the recipe book or recipe history.',
-    '',
-    `Week: ${longDate(startDate)} through ${longDate(endDate)}`,
-    '',
-  ];
-  let previousDate = '';
+  const lines: string[] = [];
   for (const entry of planned) {
     const recipe = recipesById.get(entry.recipeId);
     if (!recipe) continue;
-    if (entry.date !== previousDate) {
-      if (previousDate) lines.push('');
-      lines.push(longDate(entry.date));
-      previousDate = entry.date;
-    }
-    // A recipe URL asks Sidekick to import a recipe. Send only the dated menu,
-    // keeping imported titles on one line so they cannot become extra entries.
-    lines.push(`${capitalize(entry.mealType)}: ${recipe.title.replace(/\s+/g, ' ').trim()}`);
+    // Each line is a complete schedule entry. No preamble, recipe instructions,
+    // source links or serving counts that Sidekick could classify as a recipe.
+    // A link accidentally pasted into a title must not become an import either.
+    const title = recipe.title.replace(/(?:https?:\/\/|www\.)\S+/gi, '')
+      .replace(/\s+/g, ' ').trim() || 'Planned meal';
+    lines.push(`${longDate(entry.date)} — ${capitalize(entry.mealType)}: ${title}`);
   }
   return {
     body: lines.join('\n'),

@@ -9,7 +9,7 @@ pnpm install
 pnpm dev
 ```
 
-Run `pnpm lint`, `pnpm test:domain`, `pnpm test:import`, `pnpm test:photos`, and `pnpm build` before publishing.
+Run `pnpm lint`, `pnpm test:domain`, `pnpm test:import`, `pnpm test:photos`, `pnpm test:updates`, and `pnpm build` before publishing.
 
 ## Private sync setup
 
@@ -35,6 +35,7 @@ Savor is designed to be installed from Safari with **Share → Add to Home Scree
 - **Back gesture**: the iPhone edge swipe (and the Android back button) closes the open recipe, cooking mode, sheet, or settings instead of leaving the app.
 - **Cooking mode** opens on the current step with the ingredient list one tap away, remembers which step you were on for half a day, keeps the screen awake on request, and runs its kitchen timer by the clock so it stays correct after switching apps.
 - Settings open by themselves only on the very first launch or when the saved GitHub token needs replacing.
+- **Sync now** refreshes household data, not the app code. A persistent **Update now** notice appears once a new app version has activated; it waits while editing or cooking. **Household settings → App updates → Reload app** can also load the latest published version without removing saved recipes or the device login. Save open edits first. On an older installed version whose update notice has disappeared, fully close Savor from the iPhone app switcher and reopen it online, then compose a fresh email draft.
 
 ## Grocery list
 
@@ -49,7 +50,7 @@ Savor is designed to be installed from Safari with **Share → Add to Home Scree
 - Add the Calendar's `@ourskylight.com` device email in **Household settings → Skylight Sidekick**. From the meal planner, **Send week to Skylight** opens a prepared email draft; the user reviews and sends it. Gmail is the per-device default, and the review dialog or household settings can switch future drafts to the device's default mail app. Native menu imports require Skylight Calendar Plus.
 - **Print list** on the grocery screen opens the browser print dialog with a clean, store-section-ordered layout. The current **Hide checked** setting controls which items are included.
 
-Skylight drafts contain only meal names, exact dates, and breakfast/lunch/snack/dinner slots, with explicit instructions to schedule meals without saving recipes. Recipe links, servings, ingredients, and cooking steps are omitted because [Skylight treats recipe links as recipe imports](https://skylight.zendesk.com/hc/en-us/articles/47278643288091-Email-Events-Recipes-Menus-and-Photos-With-Sidekick). Check Skylight's confirmation: Sidekick makes the final classification, and Savor cannot force its recipe-history behavior or remove previously imported recipes.
+Skylight drafts contain one complete line per meal, for example `Wednesday, November 11, 2026 — Dinner: Butternut Squash Prosciutto Pizza`. Every line contains only the exact date, breakfast/lunch/snack/dinner type, and meal name. The app previews the exact email before opening a fresh draft. There is no subject, preamble, recipe-saving instruction, source link, serving count, ingredient list, or cooking method because [Skylight treats recipe links as recipe imports](https://skylight.zendesk.com/hc/en-us/articles/47278643288091-Email-Events-Recipes-Menus-and-Photos-With-Sidekick). Check Skylight's confirmation: Sidekick makes the final classification, and Savor cannot force its recipe-history behavior or remove previously imported recipes.
 
 ## Recipe photos
 

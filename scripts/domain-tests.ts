@@ -145,15 +145,12 @@ function itemFor(items: ReturnType<typeof aggregateRecipes>, normalized: string,
     servings: 6, revision: 1, dateModified: '2026-08-23T12:00:00.000Z',
   }], [plannedRecipe], '2026-08-23', '2026-08-29');
   assert.equal(draft.mealCount, 1);
-  assert.match(draft.body, /Tuesday, August 25, 2026/);
-  assert.match(draft.body, /Dinner: Taco night/);
-  assert.match(draft.body, /Skylight Meal Planner on the listed dates and in the listed meal slots only/);
-  assert.match(draft.body, /Do not import, generate, or save recipes to the recipe book or recipe history/);
+  assert.equal(draft.body, 'Tuesday, August 25, 2026 — Dinner: Taco night');
   assert.doesNotMatch(draft.body, /Servings:|Recipe URL:|https?:\/\//);
   assert.doesNotMatch(draft.body, /8 tortillas/);
   const deviceDefault = skylightMailto('FAMILY@ourskylight.com', draft);
   assert.match(deviceDefault, /^mailto:family@ourskylight\.com\?/);
-  assert.match(deviceDefault, /%0D%0A/);
+  assert.equal(new URL(deviceDefault).searchParams.get('body'), draft.body);
   assert.equal(new URL(deviceDefault).searchParams.has('subject'), false);
   assert.equal(skylightEmailDraftUrl('FAMILY@ourskylight.com', draft, 'device-default'), deviceDefault);
 
@@ -210,11 +207,16 @@ function itemFor(items: ReturnType<typeof aggregateRecipes>, normalized: string,
   }));
   const draft = formatSkylightWeek(entries, [plannedRecipe], '2026-08-23', '2026-08-29');
   assert.equal(draft.mealCount, 2, 'only existing recipes scheduled within this week are sent');
-  assert.match(draft.body, /Tuesday, August 25, 2026\nLunch: Lemon chicken/);
-  assert.match(draft.body, /Wednesday, August 26, 2026\nDinner: Lemon chicken/);
+  assert.equal(draft.body, 'Tuesday, August 25, 2026 — Lunch: Lemon chicken\nWednesday, August 26, 2026 — Dinner: Lemon chicken');
   assert(draft.body.indexOf('Lunch:') < draft.body.indexOf('Dinner:'));
   assert.doesNotMatch(draft.body, /2 lemons|Roast the chicken|stay in Savor|example\.com|Breakfast:/);
   assert.equal(formatSkylightWeek([], [plannedRecipe], '2026-08-23', '2026-08-29').mealCount, 0);
+  assert.equal(formatSkylightWeek([], [plannedRecipe], '2026-08-23', '2026-08-29').body, '');
+  assert.match(skylightMailto('family@ourskylight.com', draft), /%0D%0A/);
+
+  plannedRecipe.title = 'Lemon chicken https://example.com/recipe';
+  const linkedTitle = formatSkylightWeek(entries, [plannedRecipe], '2026-08-23', '2026-08-29');
+  assert.equal(linkedTitle.body, draft.body, 'a URL pasted into a meal title must not trigger a recipe import');
 }
 
 {

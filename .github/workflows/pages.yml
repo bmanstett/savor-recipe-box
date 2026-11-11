@@ -33,6 +33,7 @@ jobs:
       - run: pnpm test:domain
       - run: pnpm test:import
       - run: pnpm test:photos
+      - run: pnpm test:updates
       - run: pnpm build
       - run: touch dist/.nojekyll
       - uses: actions/upload-pages-artifact@v4

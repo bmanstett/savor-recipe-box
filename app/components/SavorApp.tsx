@@ -7,6 +7,7 @@ import {
 import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import { addRational, aggregateRecipes, draftToRecipe, makeId, parseIngredientLine } from '../../lib/domain';
 import { mergeGroceryItems, replaceGeneratedItems } from '../../lib/grocery-merge';
+import { watchAppUpdate } from '../../lib/app-update';
 import { readSkylightEmailApp, saveSkylightEmailApp, type StoredGitHubConnection } from '../../lib/client-cache';
 import { parseBackupFile } from '../../lib/github-sync';
 import type { ImportRecipeUrl } from '../../lib/github-import-queue';
@@ -110,6 +111,7 @@ export function SavorApp({
   const [recipeFilter, setRecipeFilter] = useState<'all' | 'favorites' | 'quick' | 'recent'>('all');
   const [online, setOnline] = useState(true);
   const [toast, setToast] = useState<ToastState>(null);
+  const [appUpdateReady, setAppUpdateReady] = useState(false);
   const [installPrompt, setInstallPrompt] = useState<Event | null>(null);
   const [skylightEmailApp, setSkylightEmailApp] = useState<SkylightEmailApp>('gmail');
   const [sharedUrl, setSharedUrl] = useState<string | null>(null);
@@ -276,22 +278,7 @@ export function SavorApp({
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register(new URL('sw.js', document.baseURI), { scope: './' }).then((registration) => {
         if (!active) return;
-        const announce = () => showToast({
-          message: 'A new version of Savor is ready.',
-          actionLabel: 'Update now',
-          action: () => window.location.reload(),
-        });
-        const watchInstall = () => {
-          const installing = registration.installing;
-          if (!installing) return;
-          installing.addEventListener('statechange', () => {
-            // Reaching "installed" while a worker already controls the page means
-            // this is an update rather than the very first install.
-            if (installing.state === 'installed' && navigator.serviceWorker.controller) announce();
-          });
-        };
-        registration.addEventListener('updatefound', watchInstall);
-        if (registration.waiting && navigator.serviceWorker.controller) announce();
+        const stopWatching = watchAppUpdate(registration, navigator.serviceWorker, () => setAppUpdateReady(true));
         // Installed iPhone apps stay suspended for days without ever reloading,
         // so look for a newer build every time Savor comes back to the front.
         const checkForUpdate = () => {
@@ -300,7 +287,7 @@ export function SavorApp({
         document.addEventListener('visibilitychange', checkForUpdate);
         checkForUpdate();
         releaseWorker = () => {
-          registration.removeEventListener('updatefound', watchInstall);
+          stopWatching();
           document.removeEventListener('visibilitychange', checkForUpdate);
         };
       }).catch(() => undefined);
@@ -866,6 +853,9 @@ export function SavorApp({
           hasGitHubToken={hasGitHubToken}
           sync={sync}
           installAvailable={Boolean(installPrompt)}
+          appUpdateReady={appUpdateReady}
+          appReloadBlocked={addOpen || Boolean(cookingRecipe)}
+          onReloadApp={() => window.location.reload()}
           onInstall={installApp}
           onChangeSkylightEmailApp={changeSkylightEmailApp}
           onSave={savePreferences}
@@ -876,6 +866,13 @@ export function SavorApp({
           onSyncNow={onSyncNow}
           onClose={() => setSettingsOpen(false)}
         />
+      ) : null}
+
+      {appUpdateReady && !addOpen && !settingsOpen && !cookingRecipe ? (
+        <div className="app-update-notice" role="status" aria-live="polite">
+          <div><strong>A new version of Savor is ready.</strong><span>Reload to use the updated app. Your saved recipes stay here.</span></div>
+          <button className="button button-secondary" type="button" onClick={() => window.location.reload()}>Update now</button>
+        </div>
       ) : null}
 
       {toast ? (
