@@ -170,10 +170,10 @@ export function SettingsSheet({
           </section>
 
           <section className="settings-section">
-            <div className="settings-section-heading"><span><Mail size={19} /></span><div><h2>Skylight Sidekick</h2><p>Send a planned week to your Calendar's native Meal Planner.</p></div></div>
+            <div className="settings-section-heading"><span><Mail size={19} /></span><div><h2>Skylight Sidekick</h2><p>Send meal names, dates, and meal slots to your Calendar's Meal Planner.</p></div></div>
             <label className="field-label">Skylight device email<input type="email" value={skylightEmail} onChange={(event) => setSkylightEmail(event.target.value)} autoCapitalize="none" autoComplete="off" spellCheck={false} placeholder="your-calendar@ourskylight.com" /><small>Optional. Find this address in the Skylight app. It stays with your private household preferences.</small></label>
             <label className="field-label">Default email app<select value={skylightEmailApp} onChange={(event) => onChangeSkylightEmailApp(event.target.value as SkylightEmailApp)}><option value="gmail">Gmail app</option><option value="device-default">Device default mail app</option></select><small>Saved immediately on this device. Gmail must be installed; device default uses the mail app selected in your phone or computer settings.</small></label>
-            <div className="github-security-note"><ShieldCheck size={18} /><div><strong>Drafts only</strong><p>Savor opens your email app with a prepared menu. Nothing is sent automatically, and Sidekick meal imports require Calendar Plus.</p></div></div>
+            <div className="github-security-note"><ShieldCheck size={18} /><div><strong>Schedule meals only</strong><p>The email includes no recipe links, ingredients, or instructions and asks Skylight to keep meals out of the recipe book. You review and send the draft yourself. Sidekick requires Calendar Plus.</p></div></div>
           </section>
 
           <section className="settings-section">

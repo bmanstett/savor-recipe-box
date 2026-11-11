@@ -660,7 +660,10 @@ h1, h2, h3 { text-wrap: balance; }
 .capture-error button { min-height: 31px; padding: 0 9px; border-radius: 9px; background: white; color: var(--sage); font-size: 8px; font-weight: 760; }
 .review-layout { display: grid; grid-template-columns: 300px minmax(0, 1fr); min-height: 640px; }
 .review-preview { padding: 22px; border-right: 1px solid var(--line); background: var(--surface-soft); }
-.review-image { overflow: hidden; aspect-ratio: 1; border-radius: 19px; background: var(--paper-deep); }
+.review-image { position: relative; overflow: hidden; aspect-ratio: 1; border-radius: 19px; background: var(--paper-deep); }
+.recipe-photo-credit { position: absolute; bottom: 10px; left: 10px; max-width: calc(100% - 20px); padding: 6px 9px; border-radius: 8px; background: rgb(255 253 247 / 93%); color: var(--ink); font-size: 11px; line-height: 1.4; }
+.recipe-photo-credit a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
+.review-image .recipe-photo-credit { bottom: 4px; left: 4px; max-width: calc(100% - 8px); padding: 3px 4px; border-radius: 4px; font-size: 9px; }
 .review-image img { width: 100%; height: 100%; object-fit: cover; }
 .review-image-empty { display: grid; width: 100%; height: 100%; place-content: center; gap: 8px; color: var(--muted); text-align: center; font-size: 9px; }
 .review-image-empty svg { margin: auto; color: var(--faint); }

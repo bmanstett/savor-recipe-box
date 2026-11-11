@@ -147,11 +147,14 @@ function itemFor(items: ReturnType<typeof aggregateRecipes>, normalized: string,
   assert.equal(draft.mealCount, 1);
   assert.match(draft.body, /Tuesday, August 25, 2026/);
   assert.match(draft.body, /Dinner: Taco night/);
-  assert.match(draft.body, /Servings: 6/);
-  assert.match(draft.body, /Recipe URL: https:\/\/example\.com\/tacos/);
+  assert.match(draft.body, /Skylight Meal Planner on the listed dates and in the listed meal slots only/);
+  assert.match(draft.body, /Do not import, generate, or save recipes to the recipe book or recipe history/);
+  assert.doesNotMatch(draft.body, /Servings:|Recipe URL:|https?:\/\//);
+  assert.doesNotMatch(draft.body, /8 tortillas/);
   const deviceDefault = skylightMailto('FAMILY@ourskylight.com', draft);
   assert.match(deviceDefault, /^mailto:family@ourskylight\.com\?/);
   assert.match(deviceDefault, /%0D%0A/);
+  assert.equal(new URL(deviceDefault).searchParams.has('subject'), false);
   assert.equal(skylightEmailDraftUrl('FAMILY@ourskylight.com', draft, 'device-default'), deviceDefault);
 
   const gmail = new URL(skylightGmailComposeUrl('FAMILY@ourskylight.com', draft));
@@ -186,6 +189,32 @@ function itemFor(items: ReturnType<typeof aggregateRecipes>, normalized: string,
   assert(draft.body.indexOf('Breakfast:') < draft.body.indexOf('Lunch:'));
   assert(draft.body.indexOf('Lunch:') < draft.body.indexOf('Snack:'));
   assert(draft.body.indexOf('Snack:') < draft.body.indexOf('Dinner:'));
+}
+
+{
+  const plannedRecipe = recipe('schedule-only', 'Lemon\r\n  chicken', ['2 lemons'], 4);
+  plannedRecipe.description = 'Recipe description must stay in Savor.';
+  plannedRecipe.notes = 'Recipe notes must stay in Savor.';
+  plannedRecipe.instructions = [{ id: 'step_schedule', stepNumber: 1, section: null, text: 'Roast the chicken.', timerMinutes: null }];
+  plannedRecipe.sourceURL = 'https://example.com/lemon-chicken';
+  const entries = [
+    { date: '2026-08-26', mealType: 'dinner', recipeId: plannedRecipe.id },
+    { date: '2026-08-25', mealType: 'lunch', recipeId: plannedRecipe.id },
+    { date: '2026-08-22', mealType: 'dinner', recipeId: plannedRecipe.id },
+    { date: '2026-08-30', mealType: 'dinner', recipeId: plannedRecipe.id },
+    { date: '2026-08-25', mealType: 'breakfast', recipeId: 'deleted-recipe' },
+  ].map((entry, index) => ({
+    ...entry,
+    mealType: entry.mealType as 'lunch' | 'dinner' | 'breakfast',
+    id: `meal_schedule_${index}`, servings: 4, revision: 1, dateModified: '2026-08-23T12:00:00.000Z',
+  }));
+  const draft = formatSkylightWeek(entries, [plannedRecipe], '2026-08-23', '2026-08-29');
+  assert.equal(draft.mealCount, 2, 'only existing recipes scheduled within this week are sent');
+  assert.match(draft.body, /Tuesday, August 25, 2026\nLunch: Lemon chicken/);
+  assert.match(draft.body, /Wednesday, August 26, 2026\nDinner: Lemon chicken/);
+  assert(draft.body.indexOf('Lunch:') < draft.body.indexOf('Dinner:'));
+  assert.doesNotMatch(draft.body, /2 lemons|Roast the chicken|stay in Savor|example\.com|Breakfast:/);
+  assert.equal(formatSkylightWeek([], [plannedRecipe], '2026-08-23', '2026-08-29').mealCount, 0);
 }
 
 {

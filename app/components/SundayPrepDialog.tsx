@@ -1,5 +1,7 @@
 'use client';
 
+import { RecipeImage } from './RecipeImage';
+
 import { BookOpen, CalendarClock, CheckCircle2, ClipboardList, ShieldAlert, Snowflake, X } from 'lucide-react';
 import { useMemo } from 'react';
 import type {
@@ -113,7 +115,7 @@ export function SundayPrepDialog({
             {groups.map((group) => (
               <article className="prep-recipe-card" key={group.recipeId}>
                 <header className="prep-recipe-header">
-                  {group.recipe?.heroImage ? <img alt="" src={group.recipe.heroImage} /> : <span className="prep-recipe-image image-fallback" />}
+                  <RecipeImage recipe={group.recipe ?? { title: group.recipeTitle }} alt="" className="prep-recipe-image" />
                   <div>
                     <small>{group.plannedFor.join(' · ')}</small>
                     <h3>{group.recipeTitle}</h3>

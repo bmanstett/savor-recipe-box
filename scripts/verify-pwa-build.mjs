@@ -22,6 +22,14 @@ const [html, worker, manifest] = await Promise.all([
 ]);
 
 if (worker.includes('__SAVOR_BUILD_ASSETS__')) throw new Error('The service-worker precache manifest was not injected.');
+if (worker.includes('__SAVOR_RECIPE_ASSETS__')) throw new Error('Recipe photos were not added to the offline cache.');
+
+const recipeAssets = (await listFiles(resolve(distRoot, 'recipes')))
+  .filter((path) => /\.(?:jpg|jpeg|png|webp|html|json)$/.test(path))
+  .map((path) => relative(distRoot, path).replaceAll('\\', '/'));
+for (const path of recipeAssets) {
+  if (!worker.includes(JSON.stringify(path))) throw new Error(`Recipe asset is not available offline: ${path}`);
+}
 
 const emittedAssets = (await listFiles(assetsRoot))
   .filter((path) => !path.endsWith('.map'))

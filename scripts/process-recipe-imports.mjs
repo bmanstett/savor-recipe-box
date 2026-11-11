@@ -9,7 +9,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import zlib from 'node:zlib';
 
-export const IMPORTER_VERSION = '2';
+export const IMPORTER_VERSION = '3';
 
 const REQUEST_DIRECTORY = path.join('savor', 'v1', 'imports', 'requests');
 const RESULT_DIRECTORY = path.join('savor', 'v1', 'imports', 'results');
@@ -960,18 +960,69 @@ function parseServings(value) {
   return null;
 }
 
-function safeDisplayImage(value) {
+const PHOTO_CANDIDATES = Symbol('photoCandidates');
+const NON_RECIPE_IMAGE = /(?:^|[\s/_.-])(?:avatars?|profile[-_ ]?(?:pic(?:ture)?|image)|logos?|icons?|favicon|spacer|tracking|placeholder|default[-_ ]?image)(?:[\s/_.-]|$)/i;
+
+function safeDisplayImage(value, baseUrl) {
   const candidates = Array.isArray(value) ? value : [value];
   for (const candidate of candidates) {
     const raw = typeof candidate === 'object' && candidate
       ? firstText(candidate.url ?? candidate.contentUrl ?? candidate.thumbnailUrl ?? candidate['@id'])
       : candidate;
     try {
-      const url = new URL(String(raw ?? ''));
-      if (url.protocol === 'https:' && !url.username && !url.password) return url.href;
+      if (!raw || NON_RECIPE_IMAGE.test(String(raw))) continue;
+      if (candidate && typeof candidate === 'object'
+          && [candidate.width, candidate.height].some((size) => Number(size) > 0 && Number(size) < 160)) continue;
+      const url = validateUrlSyntax(new URL(String(raw), baseUrl).href);
+      return url.href;
     } catch { /* Ignore malformed image URLs. */ }
   }
   return null;
+}
+
+function rememberPhotos(draft, candidates) {
+  const photos = unique(candidates.flat().map((value) => safeDisplayImage(value)).filter(Boolean)).slice(0, 6);
+  draft.heroImage = photos[0] ?? null;
+  // Internal retry candidates must never become part of the saved recipe contract.
+  draft[PHOTO_CANDIDATES] = photos;
+}
+
+/** Prefer an actual recipe/post image; never select an author avatar or related-post rail. */
+function pagePhotoCandidates(html, sourceUrl, title = '', elements = scanElements(html)) {
+  const { meta } = pageMetadata(html, elements);
+  const tokens = recipeTitleTokens(title);
+  const excluded = elements.filter((element) => ['nav', 'footer', 'aside'].includes(element.name)
+    || isBoilerplateElement(element) || NON_RECIPE_IMAGE.test(`${element.attrs.class ?? ''} ${element.attrs.id ?? ''}`));
+  const candidates = [];
+  const add = (value, score) => {
+    const url = safeDisplayImage(value, sourceUrl);
+    if (url) candidates.push({ url, score, order: candidates.length });
+  };
+  for (const key of ['og:image:secure_url', 'og:image', 'twitter:image', 'twitter:image:src']) add(meta[key], 70);
+  for (const element of elements) {
+    if (!['img', 'video'].includes(element.name) || excluded.some((outer) => contains(outer, element))) continue;
+    const attrs = element.attrs;
+    if (NON_RECIPE_IMAGE.test(`${attrs.alt ?? ''} ${attrs.class ?? ''} ${attrs.id ?? ''}`)) continue;
+    if ([attrs.width, attrs.height].some((size) => Number(size) > 0 && Number(size) < 160)) continue;
+    const context = elements.filter((outer) => contains(outer, element)).map((outer) => `${outer.attrs.class ?? ''} ${outer.attrs.id ?? ''}`).join(' ');
+    const recipeMedia = /EmbeddedMedia|wprm-recipe-image|tasty-recipes-image|mv-create-image/i.test(`${attrs.class ?? ''} ${context}`)
+      || /\b(?:image|thumbnailUrl)\b/i.test(attrs.itemprop ?? '');
+    const raw = element.name === 'video' ? attrs.poster : attrs['data-src'] || attrs['data-lazy-src'] || attrs.src;
+    const description = normalizeName(`${attrs.alt ?? ''} ${raw ?? ''}`);
+    const matched = tokens.filter((token) => description.includes(token)).length;
+    // Unlabelled body images can be unrelated; require recipe markup, a title match, or a video poster.
+    const score = recipeMedia ? 100 : matched ? 80 + Math.min(matched, 5) : element.name === 'video' ? 75 : 0;
+    if (!score) continue;
+    // Choose a modest responsive variant so common multi-megabyte originals can still be saved offline.
+    const variants = String(attrs['data-srcset'] || attrs.srcset || '').split(',').map((part) => {
+      const match = part.trim().match(/^(\S+)\s+(\d+)w$/);
+      return match ? { url: match[1], width: Number(match[2]) } : null;
+    }).filter((entry) => entry && entry.width >= 320 && entry.width <= 1_600)
+      .sort((left, right) => Math.abs(left.width - 800) - Math.abs(right.width - 800));
+    if (variants[0]) add(variants[0].url, score);
+    add(raw, score);
+  }
+  return unique(candidates.sort((a, b) => b.score - a.score || a.order - b.order).map((entry) => entry.url));
 }
 
 function stepTexts(value) {
@@ -1164,7 +1215,8 @@ export function draftFromSchemaRecipe(recipe, sourceUrl, nodesById = new Map()) 
   const draft = emptyDraft('url');
   draft.title = cleanText(htmlToText(firstText(recipe.name ?? recipe.headline), 1_200), CLIENT_LIMITS.title);
   draft.description = cleanText(htmlToText(firstText(recipe.description), 24_000), CLIENT_LIMITS.description);
-  draft.heroImage = safeDisplayImage(resolveReference(recipe.image ?? recipe.thumbnailUrl, nodesById));
+  const images = resolveReference(recipe.image ?? recipe.thumbnailUrl, nodesById);
+  rememberPhotos(draft, (Array.isArray(images) ? images : [images]).map((value) => safeDisplayImage(value, sourceUrl)));
   draft.sourceURL = sourceUrl.href;
   draft.sourceName = sourceUrl.hostname.replace(/^www\./, '');
   draft.author = authorText(resolveReference(recipe.author ?? recipe.creator, nodesById));
@@ -1996,17 +2048,19 @@ function captionFromContextJson(html) {
   const context = readJsonString(html, quote);
   let caption = '';
   let creator = null;
+  let heroImage = null;
   try {
     const media = JSON.parse(context)?.gql_data?.shortcode_media;
     caption = firstText(media?.edge_media_to_caption?.edges?.[0]?.node?.text);
     creator = cleanText(media?.owner?.username ?? '', 60) || null;
+    heroImage = safeDisplayImage([media?.display_url, media?.thumbnail_src, ...(media?.display_resources ?? []).map((item) => item.src)]);
   } catch { /* Fall through to the targeted scan. */ }
   if (!caption) {
     const textIndex = context.indexOf('"text":"', context.indexOf('edge_media_to_caption'));
     if (textIndex >= 0) caption = cleanText(readJsonString(context, textIndex + 7), 75_000);
   }
   if (!creator) creator = context.match(/"owner":\{[^}]*?"username":"([\w.]{1,60})"/)?.[1] ?? null;
-  return { caption: cleanText(caption, 75_000), creator };
+  return { caption: cleanText(caption, 75_000), creator, heroImage };
 }
 
 function captionFromEmbedMarkup(html, elements) {
@@ -2043,7 +2097,8 @@ export function parseInstagramEmbed(html, sourceUrlValue) {
   const creator = markup.creator ?? context.creator;
   const sourceUrl = normalizeSourceUrl(sourceUrlValue);
   const relatedUrls = unique(urlsFromText(caption).filter((url) => isLikelyRelatedUrl(url, sourceUrl)).map((url) => url.href)).map((url) => new URL(url));
-  return { caption, creator, title: '', heroImage: null, relatedUrls };
+  const photoCandidates = unique([context.heroImage, ...pagePhotoCandidates(source, sourceUrl, parseRecipeCaption(caption).title, elements)].filter(Boolean));
+  return { caption, creator, title: '', heroImage: photoCandidates[0] ?? null, photoCandidates, relatedUrls };
 }
 
 // ---------------------------------------------------------------------------
@@ -2121,7 +2176,8 @@ function readerPageText(payload) {
   try {
     const parsed = typeof payload === 'string' ? JSON.parse(payload) : payload;
     const data = parsed?.data && typeof parsed.data === 'object' ? parsed.data : parsed;
-    return { content: cleanText(data?.content, 100_000), title: firstText(data?.title), ogTitle: metadataValue(data?.metadata, 'og:title') };
+    return { content: cleanText(data?.content, 100_000), title: firstText(data?.title), ogTitle: metadataValue(data?.metadata, 'og:title'),
+      heroImage: safeDisplayImage(metadataValue(data?.metadata, 'og:image', 'twitter:image')) };
   } catch {
     return { content: cleanText(payload, 100_000), title: '', ogTitle: '' };
   }
@@ -2668,12 +2724,14 @@ export function extractRecipeFromHtml(html, sourceUrl) {
 
   for (const candidate of candidates) {
     candidate.draft.title ||= pageTitle();
-    candidate.draft.heroImage ??= safeDisplayImage(meta['og:image']);
+    rememberPhotos(candidate.draft, [candidate.draft[PHOTO_CANDIDATES] ?? candidate.draft.heroImage,
+      ...pagePhotoCandidates(html, sourceUrl, candidate.draft.title, elements)]);
   }
   const chosen = pickCandidate(candidates);
   const wprm = detectRecipePlugin(html) === 'wprm';
   return {
     chosen,
+    photoCandidates: textDraft[PHOTO_CANDIDATES] ?? [],
     paywalled: schema.paywalled && !chosen,
     clientRendered: !chosen && looksClientRendered(visibleText),
     wprm,
@@ -2712,8 +2770,8 @@ async function fetchPage(url, context, { record = null, ...extra } = {}) {
 
 async function readerDraft(url, context) {
   const response = await fetchPage(makeReaderUrl(url), context);
-  const { content, title, ogTitle } = readerPageText(response.body);
-  const draft = parseRecipeCaption(content, { title, sourceURL: url.href, sourceName: hostLabel(url) });
+  const { content, title, ogTitle, heroImage } = readerPageText(response.body);
+  const draft = parseRecipeCaption(content, { title, sourceURL: url.href, sourceName: hostLabel(url), heroImage });
   draft.title = pickRecipeTitle({ ogTitle, pageTitle: title, hostname: url.hostname }) || draft.title;
   return evidenceDraft(draft) ? { draft, provider: 'public-reader', structured: false } : null;
 }
@@ -2743,17 +2801,24 @@ async function inspectRecipePage(url, context, { allowReader = false } = {}) {
       try {
         const view = await fetchPage(alternate.url, context, { record: sourceRecord('recipe-page', alternate.url, `${alternate.label} on ${hostLabel(alternate.url)}`) });
         const candidate = extractRecipeFromHtml(view.body, view.url).chosen;
-        if (preferCandidate(candidate, best)) best = candidate;
+        if (preferCandidate(candidate, best)) {
+          rememberPhotos(candidate.draft, [candidate.draft[PHOTO_CANDIDATES] ?? candidate.draft.heroImage, best?.draft?.[PHOTO_CANDIDATES] ?? best?.draft?.heroImage]);
+          best = candidate;
+        }
       } catch { /* Alternate views are a bonus; the page result stands. */ }
     }
   }
   if (!completeDraft(best?.draft) && allowReader && !isReaderExcluded(finalUrl)) {
     try {
       const candidate = await readerDraft(finalUrl, context);
-      if (preferCandidate(candidate, best)) best = candidate;
+      if (preferCandidate(candidate, best)) {
+        rememberPhotos(candidate.draft, [candidate.draft[PHOTO_CANDIDATES] ?? candidate.draft.heroImage, best?.draft?.[PHOTO_CANDIDATES] ?? best?.draft?.heroImage]);
+        best = candidate;
+      }
     } catch (error) { context.warnings.push(userFacingFetchWarning('recipe-page', error)); }
   }
   if (best?.draft) {
+    rememberPhotos(best.draft, [best.draft[PHOTO_CANDIDATES] ?? best.draft.heroImage, ...page.photoCandidates]);
     best.draft.sourceURL = url.href;
     if (redirected) best.draft.sourceLinks = [finalRecord];
   }
@@ -2826,10 +2891,9 @@ async function processInstagram(sourceUrl, context) {
     sourceURL: sourceUrl.href,
     sourceName: 'Instagram',
     author,
-    // Instagram CDN images are short-lived hotlinks and would make a saved
-    // recipe contact Meta directly. Linked recipe pages may provide a stable image.
-    heroImage: null,
+    heroImage: post.heroImage,
   });
+  rememberPhotos(captionDraft, [post.photoCandidates ?? post.heroImage]);
   captionDraft.sourceLinks = sourceLinks;
   let best = evidenceDraft(captionDraft) ? captionDraft : null;
   let provider = best ? 'instagram-caption' : 'public-reader';
@@ -2846,6 +2910,7 @@ async function processInstagram(sourceUrl, context) {
       best.sourceName = 'Instagram';
       best.author ||= author;
       best.sourceLinks = [...sourceLinks, sourceRecord('recipe-page', candidate, `Full recipe on ${hostLabel(candidate)}`)];
+      rememberPhotos(best, [best[PHOTO_CANDIDATES] ?? best.heroImage, ...captionDraft[PHOTO_CANDIDATES]]);
     }
     return completeDraft(best) ? 'done' : 'continue';
   });
@@ -2888,8 +2953,8 @@ function makeContext(options) {
 // Hero image embedding and client-contract clamping
 // ---------------------------------------------------------------------------
 
-// Images on these hosts are short-lived or login-gated hotlinks; they are never fetched.
-const IMAGE_HOTLINK_ONLY_DOMAINS = ['instagram.com', 'cdninstagram.com', 'fbcdn.net', 'facebook.com', 'fbsbx.com'];
+// Public social covers are downloaded immediately: a saved recipe must not depend on an expiring URL.
+const EPHEMERAL_IMAGE_DOMAINS = ['instagram.com', 'cdninstagram.com', 'fbcdn.net', 'facebook.com', 'fbsbx.com'];
 const IMAGE_TYPES = { 'image/jpeg': 'jpeg', 'image/jpg': 'jpeg', 'image/pjpeg': 'jpeg', 'image/png': 'png', 'image/webp': 'webp' };
 
 export function sniffImageType(bytes) {
@@ -2902,29 +2967,37 @@ export function sniffImageType(bytes) {
 
 /**
  * An https image is only a hotlink: offline it disappears and some CDNs expire
- * it. A JPEG/PNG/WebP of at most MAX_HERO_IMAGE_BYTES from an ordinary host is
- * fetched (one request from the budget) and embedded as a data URL, which the
- * app's sync already uploads to a media file. Anything else keeps the URL, and
- * no image problem ever fails the import.
+ * it. Public JPEG/PNG/WebP images, including reel covers, are fetched through
+ * the same DNS/redirect/deadline guards as pages and embedded for private sync.
+ * Try a bounded number of alternate page photos if the first one is broken.
+ * Failed or expiring URLs are cleared so the app can supply a generic dish photo.
  */
 async function embedHeroImage(draft, context) {
-  const source = draft?.heroImage;
-  if (typeof source !== 'string' || !/^https:/i.test(source) || !context.fetchBinary) return;
-  let url;
-  try { url = validateUrlSyntax(source); } catch { return; }
-  if (hostInDomainList(url.hostname, IMAGE_HOTLINK_ONLY_DOMAINS)) return;
-  try {
-    context.takeRequest();
-    const response = await context.fetchBinary(url, fetchOptions(context, url, { maxBytes: MAX_HERO_IMAGE_BYTES + 1, profile: 'image' }));
-    const bytes = response?.bytes;
-    if (response?.truncated || !Buffer.isBuffer(bytes) || !bytes.length || bytes.length > MAX_HERO_IMAGE_BYTES) return;
-    if (response.status && (response.status < 200 || response.status >= 300)) return;
-    const declared = IMAGE_TYPES[String(response.headers?.['content-type'] ?? '').split(';')[0].trim().toLowerCase()] ?? null;
-    const sniffed = sniffImageType(bytes);
-    const type = sniffed ?? declared;
-    if (!type || (declared && sniffed && declared !== sniffed)) return;
-    draft.heroImage = `data:image/${type};base64,${bytes.toString('base64')}`;
-  } catch { /* The https URL stays; an image is never worth failing an import over. */ }
+  if (!draft || !context.fetchBinary) return;
+  const candidates = unique([draft.heroImage, ...(draft[PHOTO_CANDIDATES] ?? [])].filter(Boolean)).slice(0, 3);
+  let usableHotlink = null;
+  for (const source of candidates) {
+    let url;
+    try { url = validateUrlSyntax(source); } catch { continue; }
+    try {
+      context.takeRequest();
+      const response = await context.fetchBinary(url, fetchOptions(context, url, { maxBytes: MAX_HERO_IMAGE_BYTES + 1, profile: 'image' }));
+      if (response.status && (response.status < 200 || response.status >= 300)) continue;
+      const bytes = response?.bytes;
+      if (!Buffer.isBuffer(bytes) || !bytes.length) continue;
+      const declared = IMAGE_TYPES[String(response.headers?.['content-type'] ?? '').split(';')[0].trim().toLowerCase()] ?? null;
+      const type = sniffImageType(bytes);
+      if (!type || (declared && declared !== type)) continue;
+      if (response?.truncated || bytes.length > MAX_HERO_IMAGE_BYTES) {
+        const finalUrl = validateUrlSyntax(response.url ?? url);
+        if (!hostInDomainList(url.hostname, EPHEMERAL_IMAGE_DOMAINS) && !hostInDomainList(finalUrl.hostname, EPHEMERAL_IMAGE_DOMAINS)) usableHotlink ??= url.href;
+        continue;
+      }
+      draft.heroImage = `data:image/${type};base64,${bytes.toString('base64')}`;
+      return;
+    } catch { /* Try the next applicable image; image trouble never fails a recipe. */ }
+  }
+  draft.heroImage = usableHotlink;
 }
 
 function clampString(value, max) {

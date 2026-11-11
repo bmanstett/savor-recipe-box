@@ -1,13 +1,14 @@
 'use client';
 
 import {
-  AlertCircle, ArrowLeft, Camera, CheckCircle2, ClipboardPaste, FileImage,
+  AlertCircle, ArrowLeft, Camera, CheckCircle2, ClipboardPaste,
   ExternalLink, Instagram, Link2, LoaderCircle, PenLine, ScanLine, Upload, X,
 } from 'lucide-react';
 import { ChangeEvent, FormEvent, useEffect, useRef, useState } from 'react';
 import { createBlankDraft, isIngredientSectionHeading, makeId, parseIngredientLine, parseRecipeText } from '../../lib/domain';
 import type { ImportRecipeUrl } from '../../lib/github-import-queue';
 import { prepareRecipeImage } from '../../lib/image-processing';
+import { RecipeImage } from './RecipeImage';
 import { parseRecipeSourceUrl, type RecipeSourceUrl } from '../../lib/recipe-source';
 import type { Attachment, ImportResult, Ingredient, Instruction, Recipe, RecipeDraft, RecipeSourceLink } from '../../lib/types';
 
@@ -503,7 +504,7 @@ export function AddRecipeSheet({ initialRecipe, initialUrl = null, initialMode =
             <div className="review-layout">
               <aside className="review-preview">
                 <div className="review-image">
-                  {draft.heroImage ? <img alt="Recipe preview" src={draft.heroImage} /> : <div className="review-image-empty"><FileImage size={28} /><span>Add a finished-dish photo later</span></div>}
+                  <RecipeImage recipe={draft} alt="Recipe preview" showCredit="compact" />
                 </div>
                 {draft.attachments.length ? <div className="attachment-strip">{draft.attachments.map((attachment) => <img alt="Original recipe attachment" src={attachment.url} key={attachment.id} />)}</div> : null}
                 <button className="button button-secondary full-button" type="button" onClick={() => fileRef.current?.click()}><Upload size={16} />{draft.attachments.length ? 'Add another page' : 'Attach original image'}</button>

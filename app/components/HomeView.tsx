@@ -2,6 +2,7 @@
 
 import { ArrowRight, CalendarDays, Clock3, Play, ShoppingBasket, Sparkles, Users } from 'lucide-react';
 import { useMemo } from 'react';
+import { RecipeImage } from './RecipeImage';
 import { MEAL_TYPES, type BootstrapData, type Recipe } from '../../lib/types';
 
 type View = 'home' | 'recipes' | 'plan' | 'grocery';
@@ -99,7 +100,7 @@ export function HomeView({
           <button className="text-button" type="button" onClick={() => onNavigate('plan')}>View plan <ArrowRight size={15} /></button>
         </div>
         <article className="tonight-hero">
-          {nextRecipe.heroImage ? <img alt={nextEntry ? `${nextRecipe.title}, planned for ${nextEntry.mealType}` : nextRecipe.title} src={nextRecipe.heroImage} /> : <div className="image-fallback" />}
+          <RecipeImage recipe={nextRecipe} alt={nextEntry ? `${nextRecipe.title}, planned for ${nextEntry.mealType}` : nextRecipe.title} />
           <div className="tonight-shade" />
           <div className="tonight-copy">
             <span className="over-image-label">{nextMealLabel}</span>
@@ -128,7 +129,7 @@ export function HomeView({
               return (
                 <button className="upcoming-row" type="button" key={entry.id} onClick={() => onOpenRecipe(recipe)}>
                   <span className="upcoming-date"><strong>{label.day}</strong><small>{label.date}</small></span>
-                  {recipe.heroImage ? <img alt="" src={recipe.heroImage} /> : null}
+                  <RecipeImage recipe={recipe} alt="" />
                   <span className="upcoming-copy"><strong>{recipe.title}</strong><small>{recipe.totalTime ?? recipe.cookTime ?? '—'} min · {entry.mealType.charAt(0).toUpperCase() + entry.mealType.slice(1)}</small></span>
                   <ArrowRight size={15} aria-hidden="true" />
                 </button>
@@ -160,7 +161,7 @@ export function HomeView({
         <div className="home-recipe-grid">
           {recent.map((recipe) => (
             <button className="home-recipe-card" type="button" key={recipe.id} onClick={() => onOpenRecipe(recipe)}>
-              <span className="home-recipe-image">{recipe.heroImage ? <img alt="" src={recipe.heroImage} /> : <span className="image-fallback" />}{recipe.favorite ? <b>Favorite</b> : null}</span>
+              <span className="home-recipe-image"><RecipeImage recipe={recipe} alt="" loading="lazy" />{recipe.favorite ? <b>Favorite</b> : null}</span>
               <span className="home-recipe-copy"><strong>{recipe.title}</strong><small>{recipe.totalTime ?? recipe.cookTime ?? '—'} min · {recipe.tags[0] ?? recipe.cuisine ?? 'Recipe'}</small></span>
             </button>
           ))}
