@@ -13,7 +13,7 @@
     "lint": "tsc --noEmit",
     "test:domain": "node --experimental-strip-types scripts/domain-tests.ts",
     "test:import": "node scripts/process-recipe-imports.test.mjs",
-    "test:claude": "node --test scripts/claude-recipe-extractor.test.mjs scripts/claude-import-integration.test.mjs",
+    "test:claude": "node --test scripts/claude-recipe-extractor.test.mjs scripts/claude-recipe-retriever.test.mjs scripts/recipe-access.test.mjs scripts/claude-import-integration.test.mjs",
     "test:import-queue": "node scripts/github-import-queue-tests.mjs",
     "test:share": "node --experimental-strip-types scripts/share-intake-tests.ts && node --experimental-strip-types scripts/share-inbox-tests.ts",
     "test:photos": "node --experimental-strip-types scripts/recipe-photo-tests.ts",

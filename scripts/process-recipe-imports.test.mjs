@@ -679,7 +679,7 @@ assert.match(invalidResult.error, /HTTPS/);
 // Second-pass audit: result shapes
 // ---------------------------------------------------------------------------
 
-assert.equal(IMPORTER_VERSION, '4');
+assert.equal(IMPORTER_VERSION, '5');
 const partialHtml = '<html><head><title>Partial Recipe | Site</title><script type="application/ld+json">{"@type":"Recipe","name":"Partial Recipe","recipeIngredient":["1 cup rice","2 cups water"]}</script></head><body><h1>Partial Recipe</h1></body></html>';
 const partialResult = await processImportRequest({ version: 1, jobId: 'partial-001', createdAt: NOW(), url: 'https://www.allrecipes.com/recipe/9/partial/' }, { now: NOW, fetchText: async (url) => page(partialHtml, url) });
 assert.equal(partialResult.status, 'partial');

@@ -57,7 +57,7 @@ async function importResult(patch = {}) {
     assert(queued, 'a result is read only after the request is queued');
     assert(url.pathname.endsWith(`/results/${queued.jobId}.json`));
     const result = {
-      version: 1, jobId: queued.jobId, status: 'success', importerVersion: '4',
+      version: 1, jobId: queued.jobId, status: 'success', importerVersion: '5',
       provider: 'claude', draft, warnings: [], completedAt: '2026-11-14T12:00:00.000Z',
       sourcesChecked: [{ kind: 'recipe-page', url: sourceUrl, label: 'Recipe page' }],
       ...patch,
@@ -84,16 +84,16 @@ const accepted = await importResult();
 assert.equal(accepted.provider, 'claude');
 assert.equal(accepted.draft.title, 'Lemon Pasta');
 assert.equal(accepted.draft.ingredients[0].rawText, '200 g pasta');
-assert.equal(accepted.importerVersion, '4');
+assert.equal(accepted.importerVersion, '5');
 assert.deepEqual(accepted.warnings, []);
 
 const partial = await importResult({ status: 'partial', warnings: ['Some steps need review.'] });
 assert.equal(partial.provider, 'claude');
 assert.deepEqual(partial.warnings, ['Some steps need review.']);
 
-const older = await importResult({ provider: 'schema-org', importerVersion: '3' });
+const older = await importResult({ provider: 'schema-org', importerVersion: '4' });
 assert.equal(older.provider, 'schema-org');
-assert(older.warnings.some((warning) => warning.includes('expects 4') && warning.includes('Claude')));
+assert(older.warnings.some((warning) => warning.includes('expects 5') && warning.includes('Claude public recipe search')));
 
 await assert.rejects(importResult({ provider: 'unknown-provider' }), GitHubImportError);
 await assert.rejects(importResult({ jobId: 'another-job' }), /invalid recipe-import result/);
@@ -102,5 +102,24 @@ await assert.rejects(importResult({
   sourcesChecked: [{ kind: 'recipe-page', url: 'https://other.example/unrelated', label: 'Other page' }],
 }), /different source link/);
 await assert.rejects(importResult({ status: 'error', error: 'Claude is temporarily unavailable. Paste the recipe text instead.' }), /Claude is temporarily unavailable/);
+
+const foundPage = { kind: 'recipe-page', url: 'https://creator.example/recipes/lemon-pasta', label: 'Recipe found: Lemon Pasta' };
+await assert.rejects(importResult({
+  status: 'error', error: 'Claude found the recipe, but the creator’s page requires sign-in or a subscription.',
+  sourcesChecked: [{ kind: 'recipe-page', url: sourceUrl, label: 'Original recipe link' }, foundPage],
+}), (error) => {
+  assert(error instanceof GitHubImportError);
+  assert.match(error.message, /requires sign-in/);
+  assert.deepEqual(error.sourcesChecked[1], foundPage);
+  return true;
+});
+await assert.rejects(importResult({ status: 'error', error: 'Old importer error', sourcesChecked: undefined }), (error) => {
+  assert.equal(error.message, 'Old importer error');
+  assert.deepEqual(error.sourcesChecked, []);
+  return true;
+});
+await assert.rejects(importResult({ status: 'error', sourcesChecked: [foundPage] }), /different source link/);
+await assert.rejects(importResult({ status: 'error', sourcesChecked: [{ ...foundPage, url: 'javascript:alert(1)' }] }), /invalid recipe source details/);
+await assert.rejects(importResult({ status: 'error', sourcesChecked: Array(21).fill(foundPage) }), /invalid recipe source details/);
 
 console.log('GitHub import queue tests passed (Claude review drafts, partial results, older importers, validation, and source matching).');

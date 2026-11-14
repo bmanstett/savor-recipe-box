@@ -185,9 +185,9 @@ export function SettingsSheet({
             <ol className="how-to-list">
               <li><strong>Update your recipe-import workflow</strong><span>Use the latest Savor workflow from the setup guide.</span></li>
               <li><strong>Add your Claude API key in GitHub</strong><span>In your private data repository, open Settings → Secrets and variables → Actions. Add a repository secret named <code>ANTHROPIC_API_KEY</code>.</span></li>
-              <li><strong>Import a recipe link as usual</strong><span>Claude helps when the page needs extra extraction. You review the recipe before saving.</span></li>
+              <li><strong>Import a recipe link as usual</strong><span>Claude can search public sources for the recipe and extract its details. It cannot bypass sign-in or transcribe video. You review the recipe before saving.</span></li>
             </ol>
-            <p className="app-update-help">The key stays in GitHub Actions and is never saved in this browser. Claude receives public page text only; your cookbook and GitHub token are not shared. Your Anthropic account is billed for AI requests. Without a key, ordinary link imports still work.</p>
+            <p className="app-update-help">The key stays in GitHub Actions and is never saved in this browser. Claude receives the recipe link and public page text; your cookbook and GitHub token are not shared. Your Anthropic account is billed for AI requests and web searches. Without a key, ordinary link imports still work.</p>
             <div className="github-connect-actions">
               {connection ? <a className="button button-secondary" href={`https://github.com/${encodeURIComponent(connection.owner)}/${encodeURIComponent(connection.repo)}/settings/secrets/actions`} target="_blank" rel="noreferrer">Open API key setup<ExternalLink size={14} /></a> : null}
               <a className="button button-ghost" href="https://github.com/bmanstett/savor-recipe-box/blob/master/README.md#claude-recipe-imports" target="_blank" rel="noreferrer">Setup guide<ExternalLink size={14} /></a>

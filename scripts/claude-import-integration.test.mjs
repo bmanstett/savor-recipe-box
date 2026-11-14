@@ -3,7 +3,7 @@ import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { processImportRequest, processPendingRequests } from './process-recipe-imports.mjs';
+import { extractRecipeFromHtml, processImportRequest, processPendingRequests } from './process-recipe-imports.mjs';
 
 const URL = 'https://www.allrecipes.com/recipe/9/pan-eggs/'; // no public-reader fallback on this host
 const NOW = '2026-11-14T12:00:00.000Z';
@@ -28,7 +28,7 @@ test('rescues a prose recipe and preserves original link, photo, and grocery dat
   assert.equal(calls, 1);
   assert.equal(result.status, 'success');
   assert.equal(result.provider, 'claude');
-  assert.equal(result.importerVersion, '4');
+  assert.equal(result.importerVersion, '5');
   assert.equal(result.draft.sourceURL, URL);
   assert.equal(result.sourcesChecked[0].url, shared);
   assert.equal(result.draft.heroImage, 'https://images.example.com/eggs.jpg');
@@ -112,6 +112,97 @@ test('Instagram prose caption keeps its post, creator, and video limitation', as
   assert.equal(result.draft.author, '@test.cook');
   assert.ok(result.draft.sourceLinks.some((link) => link.kind === 'creator-profile'));
   assert.ok(result.warnings.some((warning) => /did not transcribe/.test(warning)));
+});
+
+function fetchedPage(url, title, text) {
+  return new Response(JSON.stringify({ stop_reason: 'end_turn', content: [
+    { type: 'server_tool_use', id: 'fetch-1', name: 'web_fetch', input: { url } },
+    { type: 'web_fetch_tool_result', tool_use_id: 'fetch-1', content: {
+      type: 'web_fetch_result', url,
+      content: { type: 'document', title, source: { type: 'text', media_type: 'text/plain', data: text } },
+    } },
+  ] }));
+}
+
+test('Claude retrieves an Instagram recipe even when ordinary fetching returned no caption', async () => {
+  const source = 'https://www.instagram.com/reel/RETRIEVE1/';
+  let searches = 0;
+  let extractions = 0;
+  const result = await processImportRequest(request(source), options({
+    fetchText: async () => { throw new Error('public page unavailable'); },
+    fetchClaudeRetrieval: async (_url, init) => {
+      searches++;
+      assert.ok(JSON.parse(init.body).tools.some((tool) => tool.name === 'web_search'));
+      return fetchedPage(source, 'Pan Eggs', `Pan Eggs\n${PROSE}`);
+    },
+    fetchClaude: async () => { extractions++; return answer(); },
+  }));
+  assert.equal(searches, 1);
+  assert.equal(extractions, 1);
+  assert.equal(result.status, 'success');
+  assert.equal(result.provider, 'claude');
+  assert.equal(result.draft.sourceURL, source);
+  assert.deepEqual(result.draft.ingredients.map((item) => item.rawText), EXTRACTED.ingredients);
+});
+
+test('a discovered access-gated recipe returns its page link without inventing a recipe', async () => {
+  const source = 'https://www.instagram.com/reel/GATED1/';
+  const recipePage = 'https://cook.example.com/p/chipotle-lime-shredded-beef-chili';
+  const title = 'Chipotle lime shredded beef chili';
+  const caption = `${title}. My cozy chili is ready! Comment CHILI for access. Recipe: ${recipePage}`;
+  const embed = `<div class="Caption"><a class="CaptionUsername" href="https://www.instagram.com/test.cook/">test.cook</a><br>${caption}</div>`;
+  const result = await processImportRequest(request(source), options({
+    fetchText: async (url) => {
+      if (String(url).includes('/embed/captioned/')) return page(embed, url);
+      throw new Error('unavailable');
+    },
+    fetchClaudeRetrieval: async () => fetchedPage(recipePage, title, `${title}\nIngredients\nContinue reading this post for free, courtesy of the creator.\nClaim my free post\nOr purchase a paid subscription.`),
+    fetchClaude: async (_url, init) => {
+      assert.ok(!init.body.includes('Claim my free post'), 'gated preview must not be sent for recipe extraction');
+      return answer({ foundRecipe: false });
+    },
+  }));
+  assert.equal(result.status, 'error');
+  assert.match(result.error, /Claude found the recipe.*requires sign-in or a subscription/);
+  assert.ok(result.sourcesChecked.some((item) => item.url === recipePage && item.label === `Recipe found: ${title}`));
+  assert.equal(result.draft, undefined);
+});
+
+test('readable fetched recipe details survive extraction failures and complete recipes skip extraction', async () => {
+  const source = 'https://www.instagram.com/reel/RETAIN1/';
+  for (const complete of [false, true]) {
+    let calls = 0;
+    const text = `Pan Eggs\nIngredients\n2 eggs\n1 tbsp butter${complete ? '\nInstructions\nMelt the butter.\nCook the eggs for 3 minutes.' : ''}`;
+    const result = await processImportRequest(request(source), options({
+      fetchText: async () => { throw new Error('unavailable'); },
+      fetchClaudeRetrieval: async () => fetchedPage(source, 'Pan Eggs', text),
+      fetchClaude: async () => { calls++; return new Response('unavailable', { status: 503 }); },
+    }));
+    assert.equal(calls, complete ? 0 : 1);
+    assert.equal(result.status, complete ? 'success' : 'partial');
+    assert.deepEqual(result.draft.ingredients.map((item) => item.rawText), ['2 eggs', '1 tbsp butter']);
+    assert.equal(result.draft.sourceURL, source);
+  }
+});
+
+test('access-gated article previews are not mistaken for ingredient lists and use the article title', () => {
+  const title = 'Chipotle lime shredded beef chili';
+  const html = `<h1 id="wordlogo">The Cooking Newsletter</h1><h1 class="post-title published">${title}</h1>
+    <p>For dinner we love 2 bowls of chili and 1 loaf of bread.</p><h2>Ingredients</h2>
+    <div class="paywall" data-testid="paywall">Continue reading this post for free. Claim my free post.</div>`;
+  const result = extractRecipeFromHtml(html, new globalThis.URL('https://cook.example.com/p/chili'));
+  assert.equal(result.paywalled, true);
+  assert.equal(result.chosen, null);
+  assert.equal(result.title, title);
+});
+
+test('missing Claude configuration is explained and makes no retrieval request', async () => {
+  const result = await processImportRequest(request('https://www.instagram.com/reel/NOKEY1/'), options({
+    anthropicApiKey: '', fetchText: async () => { throw new Error('unavailable'); },
+    fetchClaudeRetrieval: async () => { assert.fail('no key must not call Claude'); },
+  }));
+  assert.equal(result.status, 'error');
+  assert.match(result.error, /Claude is not enabled.*ANTHROPIC_API_KEY/);
 });
 
 test('queue passes server configuration and never writes its key into results', async () => {

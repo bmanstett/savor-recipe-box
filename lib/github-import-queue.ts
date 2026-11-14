@@ -15,13 +15,13 @@ const REQUEST_ROOT = 'savor/v1/imports/requests';
 const RESULT_ROOT = 'savor/v1/imports/results';
 const WORKFLOW_PATH = '.github/workflows/savor-recipe-import.yml';
 // A fresh GitHub Actions runner can take 20-60 seconds to start before the
-// importer's page and optional Claude budgets begin, so the client waits generously.
-const DEFAULT_TIMEOUT_MS = 200_000;
-const MAX_TIMEOUT_MS = 240_000;
+// importer's page, optional Claude search, and extraction budgets begin.
+const DEFAULT_TIMEOUT_MS = 260_000;
+const MAX_TIMEOUT_MS = 300_000;
 const POLL_INTERVAL_MS = 3_000;
 const REQUEST_TIMEOUT_MS = 20_000;
-// Older importers still work, but do not support the optional Claude fallback.
-const EXPECTED_IMPORTER_VERSION = 4;
+// Older importers still work, but do not support Claude's public recipe search.
+const EXPECTED_IMPORTER_VERSION = 5;
 
 const SOURCE_TYPES = new Set<SourceType>(['url', 'photo', 'screenshot', 'pasted-text', 'manual']);
 const GROCERY_CATEGORIES = new Set<GroceryCategory>([
@@ -72,11 +72,11 @@ function staleImporterWarning(connection: StoredGitHubConnection, version: numbe
   if (version !== null && version >= EXPECTED_IMPORTER_VERSION) return null;
   return `Your private recipe importer is out of date (version ${version ?? 1}; Savor expects ${EXPECTED_IMPORTER_VERSION}). `
     + `Update .github/workflows/savor-recipe-import.yml in ${connection.owner}/${connection.repo} to point at the newest Savor commit `
-    + 'to get the latest link-import fixes and optional Claude support.';
+    + 'to get the latest link-import fixes and Claude public recipe search.';
 }
 
 export class GitHubImportError extends Error {
-  constructor(message: string, public readonly status = 0) {
+  constructor(message: string, public readonly status = 0, public readonly sourcesChecked: RecipeSourceLink[] = []) {
     super(message);
     this.name = 'GitHubImportError';
   }
@@ -292,10 +292,16 @@ function parseQueueResult(value: unknown, jobId: string, sourceUrl: string): Suc
     throw new GitHubImportError('GitHub returned an invalid recipe-import result.');
   }
   if (value.status === 'error') {
+    // Old importers omitted source details on failures. Newer ones can return
+    // a matching recipe page that the reader could not fully access.
+    const sourcesChecked = value.sourcesChecked === undefined ? [] : parseCheckedSources(value.sourcesChecked);
+    if (value.sourcesChecked !== undefined && !sourcesChecked.some((source) => sameResource(source.url, sourceUrl))) {
+      throw new GitHubImportError('GitHub returned recipe details for a different source link. Nothing was imported.');
+    }
     const message = isString(value.error, 2_000) && value.error.trim()
       ? value.error.trim()
       : 'The public post did not contain enough recipe information to import.';
-    throw new GitHubImportError(message);
+    throw new GitHubImportError(message, 0, sourcesChecked);
   }
   if (!['success', 'partial'].includes(value.status)
     || typeof value.provider !== 'string'

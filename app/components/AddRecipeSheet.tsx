@@ -6,13 +6,14 @@ import {
 } from 'lucide-react';
 import { ChangeEvent, FormEvent, useEffect, useRef, useState } from 'react';
 import { createBlankDraft, isIngredientSectionHeading, makeId, parseIngredientLine, parseRecipeText } from '../../lib/domain';
-import type { ImportRecipeUrl } from '../../lib/github-import-queue';
+import { GitHubImportError, type ImportRecipeUrl } from '../../lib/github-import-queue';
 import { prepareRecipeImage } from '../../lib/image-processing';
 import { RecipeImage } from './RecipeImage';
 import { parseRecipeSourceUrl, type RecipeSourceUrl } from '../../lib/recipe-source';
 import type { Attachment, ImportResult, Ingredient, Instruction, Recipe, RecipeDraft, RecipeSourceLink } from '../../lib/types';
 
 type ReviewInput = { draft: RecipeDraft; warnings: string[]; provider: ImportResult['provider'] | 'manual'; sourcesChecked?: RecipeSourceLink[] };
+type CaptureError = { message: string; recovery?: string[]; recipePages?: RecipeSourceLink[] };
 
 // Hosts that an older importer recorded as "sources checked" because they sit
 // in Instagram's page footer. They are never where a recipe lives.
@@ -156,7 +157,7 @@ export function AddRecipeSheet({ initialRecipe, initialUrl = null, initialMode =
   const [importStage, setImportStage] = useState<'queued' | 'reading' | 'structuring' | null>(null);
   const [elapsed, setElapsed] = useState(0);
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<{ message: string; recovery?: string[] } | null>(null);
+  const [error, setError] = useState<CaptureError | null>(null);
   const [clipboardNote, setClipboardNote] = useState<string | null>(null);
   const [ingredientText, setIngredientText] = useState(() => ingredientsToText(draft.ingredients));
   const [instructionText, setInstructionText] = useState(() => instructionsToText(draft.instructions));
@@ -259,11 +260,17 @@ export function AddRecipeSheet({ initialRecipe, initialUrl = null, initialMode =
       const message = caught instanceof Error && caught.message !== 'unsupported'
         ? caught.message
         : 'Enter a complete link that starts with https://';
+      const recipePages = caught instanceof GitHubImportError
+        ? caught.sourcesChecked.filter((link) => link.kind === 'recipe-page' && link.label.startsWith('Recipe found:'))
+        : [];
       setImportFailed(Boolean(source));
       setError({
         message,
+        recipePages,
         recovery: source ? [
-          source.kind === 'instagram'
+          recipePages.length
+            ? 'Open the recipe page below, then paste recipe text you can access. The original post link stays attached.'
+            : source.kind === 'instagram'
             ? 'Open the post, copy the caption or the creator’s recipe comment, and paste it here. The post link stays attached.'
             : 'Open the page, copy the recipe text, and paste it here. The link stays attached.',
         ] : undefined,
@@ -420,8 +427,8 @@ export function AddRecipeSheet({ initialRecipe, initialUrl = null, initialMode =
     : importStage === 'structuring'
       ? 'The result is ready; checking its recipe fields.'
       : elapsed > 45
-        ? 'Still working on the recipe. Starting the importer and reading a difficult page can take a few minutes.'
-        : 'Reading the public page. Claude can help extract the recipe when configured.';
+        ? 'Still looking for recipe details. Starting the importer and checking public sources can take a few minutes.'
+        : 'Looking for recipe details. When enabled, Claude can search and read public sources.';
 
   return (
     <div className="sheet-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !processing && !saving) onClose(); }}>
@@ -471,9 +478,9 @@ export function AddRecipeSheet({ initialRecipe, initialUrl = null, initialMode =
               ) : null}
               {error ? <ErrorBox error={error} onPaste={() => { rememberLink(); setError(null); setMode('paste'); }} onManual={() => { rememberLink(); startManual(); }} onPhotos={() => { rememberLink(); fileRef.current?.click(); }} openUrl={importFailed ? pendingSource?.href ?? null : null} /> : null}
               <input ref={fileRef} className="sr-only" type="file" accept="image/*" multiple onChange={uploadPhotos} />
-              <aside className="privacy-note"><Instagram size={17} /><p><strong>Public pages only.</strong> When enabled, Claude receives public recipe text to help extract difficult pages. Pages behind a sign-in or recipes shown only in a video may still need pasted text. You review every import before saving.</p></aside>
+              <aside className="privacy-note"><Instagram size={17} /><p><strong>Public pages only.</strong> When enabled, Claude receives this link and public recipe text, and can search for a readable recipe page. It cannot bypass sign-in or transcribe video. Some links still need pasted text. You review every import before saving.</p></aside>
               {processing ? <div className="import-progress" role="status" aria-live="polite"><span>{stageCopy}</span><button className="button button-ghost" type="button" onClick={() => importAbortRef.current?.abort()}>Cancel</button></div> : null}
-              <button className="button button-primary full-button" type="submit" disabled={processing || !url.trim() || !canImportLinks}>{processing ? <><LoaderCircle className="spin" size={17} />{importStage === 'queued' ? 'Queued in GitHub…' : importStage === 'structuring' ? 'Structuring recipe…' : `Reading the page… ${elapsed ? `${elapsed}s` : ''}`}</> : 'Extract recipe'}</button>
+              <button className="button button-primary full-button" type="submit" disabled={processing || !url.trim() || !canImportLinks}>{processing ? <><LoaderCircle className="spin" size={17} />{importStage === 'queued' ? 'Queued in GitHub…' : importStage === 'structuring' ? 'Structuring recipe…' : `Finding recipe… ${elapsed ? `${elapsed}s` : ''}`}</> : 'Extract recipe'}</button>
             </form>
           ) : null}
 
@@ -574,7 +581,7 @@ export function AddRecipeSheet({ initialRecipe, initialUrl = null, initialMode =
 }
 
 function ErrorBox({ error, onPaste, onManual, onPhotos, openUrl }: {
-  error: { message: string; recovery?: string[] };
+  error: CaptureError;
   onPaste?: () => void;
   onManual?: () => void;
   onPhotos?: () => void;
@@ -586,6 +593,7 @@ function ErrorBox({ error, onPaste, onManual, onPhotos, openUrl }: {
       <div>
         <strong>{error.message}</strong>
         {error.recovery?.length ? <p>{error.recovery.join(' ')}</p> : null}
+        {error.recipePages?.map((page) => <p key={page.url}><strong>{page.label.replace(/^Recipe found:\s*/, '')}</strong><br /><a className="button button-secondary" href={page.url} target="_blank" rel="noreferrer">Open recipe page<ExternalLink size={13} /></a></p>)}
         <div>
           {openUrl ? <a className="button button-secondary" href={openUrl} target="_blank" rel="noreferrer">Open link<ExternalLink size={13} /></a> : null}
           {onPaste ? <button type="button" onClick={onPaste}>Paste text instead</button> : null}

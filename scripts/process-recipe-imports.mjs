@@ -9,8 +9,10 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import zlib from 'node:zlib';
 import { CLAUDE_TIMEOUT_MS, ClaudeImportError, extractWithClaude } from './claude-recipe-extractor.mjs';
+import { CLAUDE_RETRIEVAL_TIMEOUT_MS, retrieveWithClaude } from './claude-recipe-retriever.mjs';
+import { hasRecipeAccessGate } from './recipe-access.mjs';
 
-export const IMPORTER_VERSION = '4';
+export const IMPORTER_VERSION = '5';
 
 const REQUEST_DIRECTORY = path.join('savor', 'v1', 'imports', 'requests');
 const RESULT_DIRECTORY = path.join('savor', 'v1', 'imports', 'results');
@@ -599,6 +601,8 @@ function pageMetadata(html, elements = scanElements(html)) {
     }
   }
   const siteName = cleanText(meta['og:site_name'] ?? '', 200);
+  const postHeading = elements.find((element) => element.name === 'h1' && /(?:^|\s)post-title(?:\s|$)/i.test(element.attrs.class ?? ''));
+  if (postHeading) h1 = cleanText(htmlToText(innerHtml(html, postHeading), 400), 300);
   if (h1 && siteName && h1.toLowerCase() === siteName.toLowerCase()) h1 = '';
   return { meta, h1, title, siteName };
 }
@@ -2728,14 +2732,18 @@ export function extractRecipeFromHtml(html, sourceUrl) {
     rememberPhotos(candidate.draft, [candidate.draft[PHOTO_CANDIDATES] ?? candidate.draft.heroImage,
       ...pagePhotoCandidates(html, sourceUrl, candidate.draft.title, elements)]);
   }
-  const chosen = pickCandidate(candidates);
+  // Some sites expose their complete structured recipe in the public response
+  // alongside a subscription prompt. Keep that established public-data path;
+  // a teaser's narrative quantities are not a replacement for a gated recipe.
+  const accessGated = hasRecipeAccessGate(html) && !candidates.some((candidate) => candidate.structured && completeDraft(candidate.draft));
+  const chosen = accessGated ? null : pickCandidate(candidates);
   const wprm = detectRecipePlugin(html) === 'wprm';
   return {
     chosen,
     visibleText,
     title: authoritativeTitle || pageTitle(textDraft.title),
     photoCandidates: textDraft[PHOTO_CANDIDATES] ?? [],
-    paywalled: schema.paywalled && !chosen,
+    paywalled: accessGated || (schema.paywalled && !chosen),
     clientRendered: !chosen && looksClientRendered(visibleText),
     wprm,
     alternates: alternatePageUrls(elements, sourceUrl, wprm && !chosen?.draft.ingredients.length),
@@ -2774,6 +2782,7 @@ async function fetchPage(url, context, { record = null, ...extra } = {}) {
 async function readerDraft(url, context) {
   const response = await fetchPage(makeReaderUrl(url), context);
   const { content, title, ogTitle, heroImage } = readerPageText(response.body);
+  if (hasRecipeAccessGate(content)) throw new Error(PAYWALL_MESSAGE);
   const draft = parseRecipeCaption(content, { title, sourceURL: url.href, sourceName: hostLabel(url), heroImage });
   draft.title = pickRecipeTitle({ ogTitle, pageTitle: title, hostname: url.hostname }) || draft.title;
   rememberClaudeSource(context, url, content, draft.title, draft);
@@ -2852,7 +2861,9 @@ async function creatorRelatedUrls(profileUrl, creator, context) {
   try {
     const record = sourceRecord('creator-profile', profileUrl, `Instagram creator @${creator}`);
     const response = await fetchPage(makeReaderUrl(profileUrl), context, { record });
-    return parseInstagramReaderPayload(response.body, profileUrl).relatedUrls;
+    const related = parseInstagramReaderPayload(response.body, profileUrl).relatedUrls;
+    context.relatedUrls.push(...related.map((url) => url.href));
+    return related;
   } catch (error) {
     context.warnings.push(userFacingFetchWarning('creator-profile', error));
     return [];
@@ -2892,6 +2903,7 @@ async function processInstagram(sourceUrl, context) {
 
   const author = post.creator ? `@${post.creator}` : null;
   const profileUrl = post.creator ? normalizeSourceUrl(`https://www.instagram.com/${post.creator}/`) : null;
+  if (profileUrl) context.relatedUrls.push(profileUrl.href);
   const sourceLinks = [sourceRecord('instagram-post', sourceUrl, 'Original Instagram post')];
   if (profileUrl) sourceLinks.push(sourceRecord('creator-profile', profileUrl, `Instagram creator @${post.creator}`));
   const captionDraft = parseRecipeCaption(post.caption, {
@@ -2909,6 +2921,7 @@ async function processInstagram(sourceUrl, context) {
   if (completeDraft(best)) return { draft: best, provider };
 
   const candidateUrls = [...post.relatedUrls];
+  context.relatedUrls.push(...candidateUrls.map((url) => url.href));
   if (profileUrl) candidateUrls.push(...await creatorRelatedUrls(profileUrl, post.creator, context));
   const titleTokens = recipeTitleTokens(captionDraft.title || post.title || '');
   await crawlRelatedPages(candidateUrls, titleTokens, sourceUrl, context, (page, candidate) => {
@@ -2927,13 +2940,58 @@ async function processInstagram(sourceUrl, context) {
   return { draft: best, provider };
 }
 
-// Keep public evidence separate from the household state and credentials. The
-// model selects one checked source; it can never supply a new URL to fetch.
+// Keep public evidence separate from the household state and credentials.
+// Extraction selects only a source already checked by a parser or retrieval tool.
 function rememberClaudeSource(context, url, text, title, draft = null, photos = []) {
-  if (!context.anthropicApiKey || isLinkHubUrl(url) || typeof text !== 'string' || text.trim().length < 40 || looksLikeBotChallenge(200, text)) return;
+  if (!context.anthropicApiKey || isLinkHubUrl(url) || typeof text !== 'string' || text.trim().length < 40 || looksLikeBotChallenge(200, text) || hasRecipeAccessGate(text)) return;
   const existing = context.claudeSources.find((source) => source.url === url.href && source.text === text.slice(0, 100_000));
   if (existing || context.claudeSources.length >= 12) return;
   context.claudeSources.push({ url: url.href, text: text.slice(0, 100_000), title: title || '', draft, photos });
+}
+
+async function tryClaudeRetrieval(imported, sourceUrl, context) {
+  if (!isInstagramHost(sourceUrl.hostname) || !context.anthropicApiKey || completeDraft(imported.draft)) return imported;
+  context.retrievalAttempted = true;
+  try {
+    const found = await retrieveWithClaude({
+      apiKey: context.anthropicApiKey, model: context.anthropicModel, sourceUrl: sourceUrl.href,
+      sources: context.claudeSources.map(({ url, title, text, draft }) => ({ url, title, text, creator: draft?.author })),
+      relatedUrls: context.relatedUrls, fetchImpl: context.fetchClaudeRetrieval,
+    });
+    context.retrievalSearched = found.searched;
+    for (const source of found.sources) {
+      const url = normalizeSourceUrl(source.url);
+      const record = sourceRecord(isInstagramHost(url.hostname) ? 'instagram-post' : 'recipe-page', url, `Recipe found: ${source.title || hostLabel(url)}`);
+      const prior = context.sourcesChecked.find((item) => item.url === url.href);
+      if (prior) prior.label = record.label;
+      else context.sourcesChecked.push(record);
+      if (hasRecipeAccessGate(source.text)) {
+        context.accessGatedRecipe = true;
+        context.warnings.push('Claude found a matching page that requires sign-in or a subscription; its gated recipe was not imported.');
+        continue;
+      }
+      const draft = parseRecipeCaption(source.text, { title: source.title, sourceURL: url.href, sourceName: hostLabel(url) });
+      rememberClaudeSource(context, url, source.text, source.title, draft);
+      // Retrieval can reveal ordinary recipe text our local parser understands.
+      // Keep it even if later AI extraction fails, and avoid another paid call
+      // when both recipe sections are already available.
+      if (evidenceDraft(draft) && (!imported.draft || (recipeEvidenceScore(draft) > recipeEvidenceScore(imported.draft)
+        && draft.ingredients.length >= imported.draft.ingredients.length && draft.instructions.length >= imported.draft.instructions.length))) {
+        const caption = context.claudeSources.find((item) => item.url === sourceUrl.href)?.draft;
+        draft.sourceURL = sourceUrl.href;
+        draft.sourceName = 'Instagram';
+        draft.author ||= caption?.author ?? null;
+        draft.sourceLinks = [...(caption?.sourceLinks ?? []), ...(url.href === sourceUrl.href ? [] : [record])];
+        rememberPhotos(draft, [caption?.[PHOTO_CANDIDATES] ?? caption?.heroImage]);
+        draft.ingredients = draft.ingredients.map((ingredient) => ({ ...ingredient, needsReview: true }));
+        imported = { draft, provider: 'claude' };
+      }
+    }
+    if (found.sources.length) context.warnings.push('Claude searched for the recipe and read matching public pages.');
+  } catch (error) {
+    context.warnings.push(error instanceof ClaudeImportError ? error.message : 'Claude could not search for this recipe. The available recipe details were kept.');
+  }
+  return imported;
 }
 
 async function tryClaudeFallback(imported, sourceUrl, context) {
@@ -2942,7 +3000,7 @@ async function tryClaudeFallback(imported, sourceUrl, context) {
   // ties. A caption and a linked recipe are never merged by the model.
   const sources = [...context.claudeSources].sort((a, b) => recipeEvidenceScore(b.draft) - recipeEvidenceScore(a.draft)).slice(0, 3);
   try {
-    const timeoutMs = Math.min(CLAUDE_TIMEOUT_MS, context.deadline + CLAUDE_TIMEOUT_MS - Date.now());
+    const timeoutMs = Math.min(CLAUDE_TIMEOUT_MS, context.deadline + CLAUDE_RETRIEVAL_TIMEOUT_MS + CLAUDE_TIMEOUT_MS - Date.now());
     if (timeoutMs < 1_000) throw new ClaudeImportError('There was not enough time for Claude to read this recipe. Try importing again.');
     const extracted = await extractWithClaude({
       apiKey: context.anthropicApiKey, model: context.anthropicModel,
@@ -2989,9 +3047,14 @@ function makeContext(options) {
     warnings,
     sourcesChecked,
     claudeSources: [],
+    relatedUrls: [],
+    retrievalAttempted: false,
+    retrievalSearched: false,
+    accessGatedRecipe: false,
     anthropicApiKey: options.anthropicApiKey ?? process.env.ANTHROPIC_API_KEY ?? '',
     anthropicModel: options.anthropicModel ?? process.env.ANTHROPIC_MODEL,
     fetchClaude: options.fetchClaude,
+    fetchClaudeRetrieval: options.fetchClaudeRetrieval ?? options.fetchClaude,
     fetchText: options.fetchText ?? safeFetchText,
     // Image bytes travel through the same guarded fetch. A caller that mocks
     // fetchText without fetchBinary gets no image requests at all.
@@ -3135,6 +3198,7 @@ export async function processImportRequest(request, options = {}) {
       const page = await inspectRecipePage(validated.url, context, { allowReader: true });
       imported = { draft: page.draft, provider: page.provider ?? 'public-reader' };
     }
+    imported = await tryClaudeRetrieval(imported, validated.url, context);
     imported = await tryClaudeFallback(imported, validated.url, context);
     if (imported.draft && !completeDraft(imported.draft)) context.warnings.push('Only part of the recipe could be identified; review the imported fields before saving.');
     if (context.truncated && !completeDraft(imported.draft)) {
@@ -3144,8 +3208,15 @@ export async function processImportRequest(request, options = {}) {
     }
     const status = resultStatus(imported.draft);
     if (status === 'error') {
-      const aiFailure = context.warnings.find((warning) => /^(?:Claude|There was not enough time for Claude)/.test(warning));
-      return { ...errorResult(jobId, aiFailure ?? 'No usable recipe details were found in the public sources checked. Paste the recipe text or attach screenshots to keep the original link.', context, completedAt), provider: imported.provider };
+      const aiFailure = context.warnings.find((warning) => /^(?:Claude|There was not enough time for Claude)/.test(warning) && !/^Claude (?:searched|found|extracted)/.test(warning));
+      const message = context.accessGatedRecipe
+        ? 'Claude found the recipe, but the creator’s page requires sign-in or a subscription. Open the recipe page and paste text you can access.'
+        : aiFailure ?? (context.retrievalAttempted
+          ? 'Claude could not find a readable public recipe for this post. Paste the caption or recipe text, or attach screenshots. The original link stays attached.'
+          : !context.anthropicApiKey
+            ? 'No usable recipe details were found. Claude is not enabled in the private importer: check that its workflow passes the ANTHROPIC_API_KEY secret. You can also paste recipe text or attach screenshots.'
+            : 'No usable recipe details were found in the public sources checked. Paste the recipe text or attach screenshots to keep the original link.');
+      return { ...errorResult(jobId, message, context, completedAt), provider: imported.provider };
     }
     await embedHeroImage(imported.draft, context);
     return {
