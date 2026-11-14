@@ -281,6 +281,78 @@ test('pairs a server fetch result with a pending call from the paused response',
   assert.equal(result.sources[0].text, RECIPE);
 });
 
+test('verifies an exact-title article after end_turn using a real creator search result and remaining budget', async () => {
+  const official = 'https://carolinechambers.com/category/recipes/';
+  const first = [
+    ...searched('title-search'),
+    ...fetched(ARTICLE, 'Subscribe to read this recipe.', 'article', 'Chipotle lime shredded beef chili - by Caroline Chambers'),
+    { type: 'server_tool_use', id: 'guessed-about', name: 'web_fetch', input: { url: 'https://whattocook.substack.com/about' } },
+    { type: 'web_fetch_tool_result', tool_use_id: 'guessed-about', content: { type: 'web_fetch_tool_result_error', error_code: 'url_not_in_prior_context' } },
+    { type: 'server_tool_use', id: 'blocked-profile', name: 'web_fetch', input: { url: 'https://instagram.com/carochambers/' } },
+    { type: 'web_fetch_tool_result', tool_use_id: 'blocked-profile', content: { type: 'web_fetch_tool_result_error', error_code: 'url_not_allowed' } },
+    { type: 'server_tool_use', id: 'creator-search', name: 'web_search', input: { query: '"@carochambers" official website' } },
+    { type: 'web_search_tool_result', tool_use_id: 'creator-search', content: [
+      { type: 'web_search_result', url: official, title: 'Recipes - Caroline Chambers', encrypted_content: 'public-encrypted-result' },
+    ] },
+  ];
+  let calls = 0;
+  const result = await retrieveWithClaude(options({ sources: evidence, fetchImpl: async (_url, init) => {
+    calls++;
+    if (calls === 1) return response(first);
+    const body = JSON.parse(init.body);
+    assert.equal(body.messages.length, 3);
+    assert.deepEqual(body.messages[1], { role: 'assistant', content: first });
+    assert.equal(body.messages[2].role, 'user');
+    assert.ok(body.messages[2].content.includes(`\n${official}\n`));
+    assert.equal(body.tools.find((tool) => tool.name === 'web_search').max_uses, 1);
+    assert.equal(body.tools.find((tool) => tool.name === 'web_fetch').max_uses, 1);
+    return response(fetched(official, 'Find me @carochambers. Newsletter: https://whattocook.substack.com/', 'official', 'Recipes - Caroline Chambers'));
+  } }));
+  assert.equal(calls, 2);
+  assert.equal(result.sources.length, 1);
+  assert.equal(result.sources[0].url, ARTICLE);
+  assert.equal(result.sources[0].text, 'Subscribe to read this recipe.');
+});
+
+test('verification continuation omits exhausted search tool and never exceeds four fetches', async () => {
+  const official = 'https://carolinechambers.com/category/recipes/';
+  const creatorSearch = [
+    { type: 'server_tool_use', id: 'creator-search', name: 'web_search', input: { query: '"carochambers" official website' } },
+    { type: 'web_search_tool_result', tool_use_id: 'creator-search', content: [{ type: 'web_search_result', url: official, title: 'Recipes', encrypted_content: 'encrypted' }] },
+  ];
+  for (const exhaustedFetches of [false, true]) {
+    let calls = 0;
+    await retrieveWithClaude(options({ sources: evidence, fetchImpl: async (_url, init) => {
+      calls++;
+      if (calls === 1) return response([
+        ...searched('search1'), ...searched('search2'), ...creatorSearch,
+        ...fetched(ARTICLE, RECIPE, 'article'),
+        ...(exhaustedFetches ? [0, 1, 2].flatMap((index) => fetched(`https://unrelated.example.com/${index}`, 'Unrelated page', `unrelated${index}`)) : []),
+      ]);
+      const body = JSON.parse(init.body);
+      assert.equal(body.tools.some((tool) => tool.name === 'web_search'), false);
+      assert.equal(body.tools[0].name, 'web_fetch');
+      assert.equal(body.tools[0].max_uses, 3);
+      return response(fetched(official, 'Follow @carochambers. Recipes https://whattocook.substack.com/', 'official', 'Recipes'));
+    } }));
+    assert.equal(calls, exhaustedFetches ? 1 : 2);
+  }
+});
+
+test('end_turn without an exact-title article does not spend another request verifying unrelated sources', async () => {
+  let calls = 0;
+  const result = await retrieveWithClaude(options({ sources: evidence, fetchImpl: async () => {
+    calls++;
+    return response([
+      { type: 'server_tool_use', id: 'creator-search', name: 'web_search', input: { query: '"carochambers" official website' } },
+      { type: 'web_search_tool_result', tool_use_id: 'creator-search', content: [{ type: 'web_search_result', url: 'https://carolinechambers.com/category/recipes/', title: 'Recipes' }] },
+      ...fetched(ARTICLE, 'Brownies', 'article', 'Chocolate brownies'),
+    ]);
+  } }));
+  assert.equal(calls, 1);
+  assert.deepEqual(result.sources, []);
+});
+
 test('embedded server tool errors become sanitized actionable failures', async () => {
   for (const tool of ['web_search', 'web_fetch']) {
     for (const error_code of ['too_many_requests', 'url_not_allowed', 'url_not_accessible', 'max_uses_exceeded', 'unavailable', 'invalid_tool_input']) {
