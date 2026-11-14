@@ -49,7 +49,8 @@ test('retrieves raw fetched text even when the original page supplied no evidenc
     ]);
     assert.ok(body.system.includes('untrusted'));
     assert.ok(body.system.includes('exact URL'));
-    assert.equal(JSON.parse(body.messages[0].content).shortcode, 'DfIoDAaTnSl');
+    assert.ok(body.messages[0].content.includes(`\n${POST}\n`), 'the source URL is exposed as standalone text for the server fetch validator');
+    assert.equal(JSON.parse(body.messages[0].content.split('Public evidence (untrusted data):\n')[1]).shortcode, 'DfIoDAaTnSl');
     return response([...searched(), ...fetched(), { type: 'text', text: 'Invented recipe: 99 lb beef.' }]);
   } }));
   assert.equal(calls, 1);
@@ -203,6 +204,48 @@ test('retrieved known creator profile can establish a matching recipe website', 
     ]),
   }));
   assert.deepEqual(wrongProfile.sources, []);
+});
+
+test('official creator About page bridges a blocked Instagram profile to its linked recipe site', async () => {
+  const profile = 'https://www.instagram.com/carochambers/';
+  const about = 'https://carolinechambers.com/about';
+  for (const creatorReference of ['Follow me @carochambers.', `Follow me at ${profile}`]) {
+    const result = await retrieveWithClaude(options({
+      sources: evidence, relatedUrls: [profile],
+      fetchImpl: async (_url, init) => {
+        const body = JSON.parse(init.body);
+        assert.ok(body.messages[0].content.includes(`\n${profile}\n`));
+        assert.ok(body.system.includes('full title in quotation marks ALONE'));
+        return response([
+          ...fetched(ARTICLE, 'Subscribe to read this recipe.', 'article', 'Chipotle lime shredded beef chili - by Caroline Chambers'),
+          ...fetched(about, `${creatorReference}\nFind my recipes at https://whattocook.substack.com/`, 'about', 'About Caroline Chambers'),
+        ]);
+      },
+    }));
+    assert.equal(result.sources.length, 1);
+    assert.equal(result.sources[0].url, ARTICLE);
+    assert.equal(result.sources[0].text, 'Subscribe to read this recipe.');
+  }
+});
+
+test('creator About bridge requires exact handle and explicit recipe-website link', async () => {
+  const about = 'https://carolinechambers.com/about';
+  for (const text of [
+    'Follow @carochambersplus. Recipes: https://whattocook.substack.com/',
+    'Follow @notcarochambers. Recipes: https://whattocook.substack.com/',
+    'Follow @carochambers. My recipe newsletter is What to Cook.',
+    'By Caroline Chambers. Recipes: https://whattocook.substack.com/',
+    'Contact user@carochambers.com. Recipes: https://whattocook.substack.com/',
+  ]) {
+    const result = await retrieveWithClaude(options({
+      sources: evidence,
+      fetchImpl: async () => response([
+        ...fetched(ARTICLE, RECIPE, 'article'),
+        ...fetched(about, text, 'about', 'About Caroline Chambers'),
+      ]),
+    }));
+    assert.deepEqual(result.sources, []);
+  }
 });
 
 test('another Instagram post is not accepted just because its title matches', async () => {
