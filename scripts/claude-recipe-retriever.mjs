@@ -10,6 +10,7 @@ const SYSTEM = `Locate the public recipe belonging to the exact shared URL.
 When the supplied caption names a recipe, first search its exact full title in quotation marks ALONE, without creator terms. Fetch the matching recipe article.
 Next, if the creator's recipe website is not yet established, search the exact creator handle in quotation marks plus "official website" and FETCH an actual official creator-page URL returned by that search before finishing.
 Any official creator page can verify the link: a homepage, recipe category, or About page. Use only URLs supplied here or returned by a tool; never invent an /about path or another URL.
+Fetch only HTTPS URLs. A public link written with http may identify the same website; use its HTTPS form or find that HTTPS URL through search.
 A third search, if needed, can combine the quoted full recipe title and creator. Do not replace the quoted title with generic ingredient keywords.
 Only when no recipe title is available, first search the exact URL or Instagram post shortcode, then fetch that post or a matching indexed page.
 Avoid downloader and reel-viewer websites. Do not retry the same blocked URL. Use at most three searches and four fetches, preserving fetches for the article and creator website.
@@ -61,8 +62,10 @@ function identity(url) {
 
 function textLinks(text) {
   const found = [];
-  for (const match of text.matchAll(/https:\/\/[^\s<>"']+/g)) {
-    const url = safeUrl(match[0].replace(/&amp;/g, '&').replace(/[),.;!?\]}]+$/, ''));
+  for (const match of text.matchAll(/https?:\/\/[^\s<>"']+/gi)) {
+    // Legacy public links can establish website identity after an HTTPS
+    // upgrade. All actual fetch calls and returned source URLs remain HTTPS.
+    const url = safeUrl(match[0].replace(/^http:/i, 'https:').replace(/&amp;/g, '&').replace(/[),.;!?\]}]+$/, ''));
     if (url) found.push(url);
   }
   return found;
@@ -293,7 +296,10 @@ export async function retrieveWithClaude({
           // This is a new user turn, so enforce remaining limits locally;
           // provider max_uses alone would otherwise reset to the full budget.
           limits = { search: Math.max(0, 3 - usedSearches), fetch: 4 - usedFetches };
-          messages.push({ role: 'assistant', content: payload.content });
+          // Thinking signatures are bound to the tools that produced them.
+          // A new user turn changes max_uses, so omit thinking only here;
+          // server results/citations stay intact. pause_turn below is unchanged.
+          messages.push({ role: 'assistant', content: payload.content.filter((block) => !['thinking', 'redacted_thinking'].includes(block?.type)) });
           messages.push({ role: 'user', content: `The exact-title recipe article was fetched, but its creator-to-website link is not verified yet. Before finishing, use web_fetch on one relevant official creator page from these ACTUAL search-result URLs. Fetch the URL exactly as listed; do not invent another path or retry Instagram. Look for the exact known @handle or Instagram profile link and an explicit link to the recipe website. Search snippets and your prose cannot establish this link.\n\n${remainingUrls.join('\n')}\n\nFetch an appropriate page now within the remaining tool budget, then stop.` });
           continue;
         }

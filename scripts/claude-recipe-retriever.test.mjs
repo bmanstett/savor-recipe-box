@@ -228,6 +228,21 @@ test('official creator About page bridges a blocked Instagram profile to its lin
   }
 });
 
+test('HTTP creator-site discovery links are upgraded to HTTPS without accepting HTTP fetches', async () => {
+  const official = 'https://carolinechambers.com/category/recipes/';
+  const result = await retrieveWithClaude(options({ sources: evidence, fetchImpl: async () => response([
+    ...fetched(ARTICLE, 'Subscribe to read this recipe.', 'article', 'Chipotle lime shredded beef chili - by Caroline Chambers'),
+    ...fetched(official, 'Find me @carochambers. [Gift WTC](http://Whattocook.substack.com/gift)', 'creator', 'Recipes'),
+  ]) }));
+  assert.equal(result.sources.length, 1);
+  assert.equal(result.sources[0].url, ARTICLE);
+  const insecureFetch = await retrieveWithClaude(options({
+    sources: [{ ...evidence[0], text: `${CAPTION}\nhttp://Whattocook.substack.com/p/chipotle-lime-shredded-beef-chili` }],
+    fetchImpl: async () => response(fetched('http://whattocook.substack.com/p/chipotle-lime-shredded-beef-chili')),
+  }));
+  assert.deepEqual(insecureFetch.sources, []);
+});
+
 test('creator About bridge requires exact handle and explicit recipe-website link', async () => {
   const about = 'https://carolinechambers.com/about';
   for (const text of [
@@ -257,7 +272,7 @@ test('another Instagram post is not accepted just because its title matches', as
 });
 
 test('continues pause_turn once with unchanged server blocks and shared limits', async () => {
-  const first = [...searched(), { type: 'thinking', thinking: 'Find original public post', signature: 'signature' }];
+  const first = [...searched(), { type: 'thinking', thinking: 'Find original public post', signature: 'signature' }, { type: 'redacted_thinking', data: 'encrypted-thinking' }];
   let calls = 0;
   const result = await retrieveWithClaude(options({ fetchImpl: async (_url, init) => {
     calls++;
@@ -284,6 +299,8 @@ test('pairs a server fetch result with a pending call from the paused response',
 test('verifies an exact-title article after end_turn using a real creator search result and remaining budget', async () => {
   const official = 'https://carolinechambers.com/category/recipes/';
   const first = [
+    { type: 'thinking', thinking: 'Find and verify source', signature: 'signature-bound-to-original-tools' },
+    { type: 'redacted_thinking', data: 'encrypted-thinking-bound-to-original-tools' },
     ...searched('title-search'),
     ...fetched(ARTICLE, 'Subscribe to read this recipe.', 'article', 'Chipotle lime shredded beef chili - by Caroline Chambers'),
     { type: 'server_tool_use', id: 'guessed-about', name: 'web_fetch', input: { url: 'https://whattocook.substack.com/about' } },
@@ -301,7 +318,8 @@ test('verifies an exact-title article after end_turn using a real creator search
     if (calls === 1) return response(first);
     const body = JSON.parse(init.body);
     assert.equal(body.messages.length, 3);
-    assert.deepEqual(body.messages[1], { role: 'assistant', content: first });
+    assert.deepEqual(body.messages[1], { role: 'assistant', content: first.filter((block) => !['thinking', 'redacted_thinking'].includes(block.type)) });
+    assert.ok(!body.messages[1].content.some((block) => ['thinking', 'redacted_thinking'].includes(block.type)), 'new-turn changed tool limits must not replay bound thinking signatures');
     assert.equal(body.messages[2].role, 'user');
     assert.ok(body.messages[2].content.includes(`\n${official}\n`));
     assert.equal(body.tools.find((tool) => tool.name === 'web_search').max_uses, 1);
