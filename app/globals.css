@@ -1422,6 +1422,28 @@ h1, h2, h3 { text-wrap: balance; }
   .detail-primary-actions .grocery-action svg, .detail-primary-actions .edit-action svg { width: 18px; height: 18px; }
 }
 
+.share-shortcut-setup .share-shortcut-intro { margin: 0; color: var(--muted); font-size: 14px; line-height: 1.6; }
+.share-shortcut-details { margin-top: 16px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface-soft); }
+.share-shortcut-details summary { padding: 15px 16px; color: var(--sage); cursor: pointer; font-size: 14px; font-weight: 700; line-height: 1.5; }
+.share-shortcut-details summary:focus-visible { outline: 2px solid var(--sage); outline-offset: 3px; border-radius: 12px; }
+.share-shortcut-steps { display: grid; gap: 16px; min-width: 0; padding: 0 16px 18px; font-size: 14px; line-height: 1.6; }
+.share-shortcut-steps p { margin: 0; }
+.share-shortcut-editor { display: grid; justify-items: start; gap: 8px; }
+.share-shortcut-editor .button { min-height: 44px; }
+.share-shortcut-editor p { color: var(--muted); font-size: 13px; }
+.share-shortcut-action-heading { font-weight: 700; }
+.share-shortcut-actions { display: grid; gap: 14px; margin: 0; padding-left: 24px; }
+.share-shortcut-actions li { padding-left: 3px; }
+.share-shortcut-actions strong, .share-shortcut-actions span { display: block; }
+.share-shortcut-actions span { color: var(--muted); }
+.share-shortcut-actions em { color: var(--ink); font-style: normal; font-weight: 600; }
+.share-shortcut-address { display: grid; gap: 10px; min-width: 0; }
+.share-shortcut-address label { font-size: 13px; font-weight: 700; }
+.share-shortcut-address textarea { width: 100%; min-width: 0; box-sizing: border-box; padding: 12px; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--surface); color: var(--ink); font-size: 16px; line-height: 1.5; resize: vertical; overflow-wrap: anywhere; }
+.share-shortcut-address .button { justify-self: start; min-height: 44px; }
+.share-shortcut-address p, .share-shortcut-note { color: var(--muted); font-size: 13px; line-height: 1.6; }
+.share-shortcut-copy-status:empty { display: none; }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
 }

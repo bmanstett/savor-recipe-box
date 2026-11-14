@@ -32,6 +32,9 @@ jobs:
       - run: pnpm lint
       - run: pnpm test:domain
       - run: pnpm test:import
+      - run: pnpm test:claude
+      - run: pnpm test:import-queue
+      - run: pnpm test:share
       - run: pnpm test:photos
       - run: pnpm test:updates
       - run: pnpm build

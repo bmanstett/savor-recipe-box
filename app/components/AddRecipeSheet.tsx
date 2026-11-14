@@ -120,6 +120,7 @@ function providerLabel(provider: ImportResult['provider'] | 'manual'): string {
     case 'linked-recipe': return 'Linked recipe page';
     case 'instagram-caption': return 'Public Instagram caption';
     case 'public-reader': return 'Public page text';
+    case 'claude': return 'Extracted with Claude';
     case 'text-parser': return 'Parsed recipe text';
     case 'manual-photo': return 'Original image preserved';
     default: return 'Manual recipe';
@@ -182,15 +183,18 @@ export function AddRecipeSheet({ initialRecipe, initialUrl = null, initialMode =
   // A link shared into Savor (share sheet or shortcut) starts extracting on
   // its own; the person already chose it, so no second tap is needed.
   useEffect(() => {
-    if (!initialUrl || autoStarted.current) return undefined;
-    autoStarted.current = true;
+    if (!initialUrl || autoStarted.current || phase !== 'source' || mode !== 'link' || url !== initialUrl) return undefined;
     rememberLink(initialUrl);
-    if (canImportLinks) void runImport(initialUrl);
-    // StrictMode mounts twice in development: the unmount cleanup aborts the
-    // first attempt, so the guard is released to let the remount start again.
-    return () => { autoStarted.current = false; };
+    if (!canImportLinks) return undefined;
+    // Deferring one tick lets StrictMode cancel its first mount before any
+    // request starts. Reconnecting later must never replace an edited review.
+    const timer = window.setTimeout(() => {
+      autoStarted.current = true;
+      void runImport(initialUrl);
+    }, 0);
+    return () => window.clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialUrl, canImportLinks]);
+  }, [initialUrl, canImportLinks, phase, mode, url]);
 
   // Whatever route the person takes after typing or sharing a link (paste,
   // screenshots, manual entry, settings), the link travels with the recipe.
@@ -227,6 +231,10 @@ export function AddRecipeSheet({ initialRecipe, initialUrl = null, initialMode =
   }
 
   async function runImport(rawUrl: string) {
+    const controller = new AbortController();
+    importAbortRef.current?.abort();
+    importAbortRef.current = controller;
+    const isCurrent = () => importAbortRef.current === controller && !controller.signal.aborted;
     setProcessing(true);
     setError(null);
     setImportFailed(false);
@@ -235,19 +243,18 @@ export function AddRecipeSheet({ initialRecipe, initialUrl = null, initialMode =
       if (!source) throw new Error('unsupported');
       setPendingSource(source);
       setKeepSource(true);
-      const controller = new AbortController();
-      importAbortRef.current?.abort();
-      importAbortRef.current = controller;
       const result = await onImportRecipeUrl(source.href, {
         signal: controller.signal,
-        onProgress: (stage) => setImportStage(stage),
+        onProgress: (stage) => { if (isCurrent()) setImportStage(stage); },
       });
+      if (!isCurrent()) return;
       const nextDraft = { ...result.draft };
       nextDraft.sourceType = 'url';
       nextDraft.sourceURL ||= source.href;
       nextDraft.sourceName ||= source.sourceName;
       openReview({ ...result, draft: nextDraft });
     } catch (caught) {
+      if (!isCurrent()) return;
       if (caught instanceof DOMException && caught.name === 'AbortError') return;
       const message = caught instanceof Error && caught.message !== 'unsupported'
         ? caught.message
@@ -262,9 +269,11 @@ export function AddRecipeSheet({ initialRecipe, initialUrl = null, initialMode =
         ] : undefined,
       });
     } finally {
-      importAbortRef.current = null;
-      setImportStage(null);
-      setProcessing(false);
+      if (importAbortRef.current === controller) {
+        importAbortRef.current = null;
+        setImportStage(null);
+        setProcessing(false);
+      }
     }
   }
 
@@ -411,8 +420,8 @@ export function AddRecipeSheet({ initialRecipe, initialUrl = null, initialMode =
     : importStage === 'structuring'
       ? 'The result is ready; checking its recipe fields.'
       : elapsed > 45
-        ? 'Still working. GitHub sometimes takes a minute to start the private importer.'
-        : 'Waiting for the private GitHub Action to read the public page.';
+        ? 'Still working on the recipe. Starting the importer and reading a difficult page can take a few minutes.'
+        : 'Reading the public page. Claude can help extract the recipe when configured.';
 
   return (
     <div className="sheet-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !processing && !saving) onClose(); }}>
@@ -462,7 +471,7 @@ export function AddRecipeSheet({ initialRecipe, initialUrl = null, initialMode =
               ) : null}
               {error ? <ErrorBox error={error} onPaste={() => { rememberLink(); setError(null); setMode('paste'); }} onManual={() => { rememberLink(); startManual(); }} onPhotos={() => { rememberLink(); fileRef.current?.click(); }} openUrl={importFailed ? pendingSource?.href ?? null : null} /> : null}
               <input ref={fileRef} className="sr-only" type="file" accept="image/*" multiple onChange={uploadPhotos} />
-              <aside className="privacy-note"><Instagram size={17} /><p><strong>Public pages only.</strong> Savor never signs in to a site, never bypasses a login or paywall, and never sends your GitHub token anywhere except GitHub. If a page keeps its recipe behind a sign-in, paste the text instead.</p></aside>
+              <aside className="privacy-note"><Instagram size={17} /><p><strong>Public pages only.</strong> When enabled, Claude receives public recipe text to help extract difficult pages. Pages behind a sign-in or recipes shown only in a video may still need pasted text. You review every import before saving.</p></aside>
               {processing ? <div className="import-progress" role="status" aria-live="polite"><span>{stageCopy}</span><button className="button button-ghost" type="button" onClick={() => importAbortRef.current?.abort()}>Cancel</button></div> : null}
               <button className="button button-primary full-button" type="submit" disabled={processing || !url.trim() || !canImportLinks}>{processing ? <><LoaderCircle className="spin" size={17} />{importStage === 'queued' ? 'Queued in GitHub…' : importStage === 'structuring' ? 'Structuring recipe…' : `Reading the page… ${elapsed ? `${elapsed}s` : ''}`}</> : 'Extract recipe'}</button>
             </form>
@@ -510,6 +519,7 @@ export function AddRecipeSheet({ initialRecipe, initialUrl = null, initialMode =
                 <button className="button button-secondary full-button" type="button" onClick={() => fileRef.current?.click()}><Upload size={16} />{draft.attachments.length ? 'Add another page' : 'Attach original image'}</button>
                 <input ref={fileRef} className="sr-only" type="file" accept="image/*" multiple onChange={uploadPhotos} />
                 <div className="review-status"><CheckCircle2 size={17} /><div><strong>{initialRecipe ? 'Editing a saved recipe' : providerLabel(provider)}</strong><small>{initialRecipe ? (initialRecipe.sourceName ? `Saved from ${initialRecipe.sourceName}` : 'Changes apply when you save') : reviewCount ? `${reviewCount} ingredient${reviewCount === 1 ? ' needs' : 's need'} review` : 'Ready for your review'}</small></div></div>
+                {!initialRecipe && provider === 'claude' ? <p className="field-help">Claude organized the public recipe text. Check quantities and steps against the source before saving.</p> : null}
                 {draft.sourceLinks?.length ? <div className="import-sources"><strong>Linked sources</strong>{draft.sourceLinks.map((source) => <a key={`${source.kind}:${source.url}`} href={source.url} target="_blank" rel="noreferrer">{source.label}<ExternalLink size={12} /></a>)}</div> : null}
               </aside>
 

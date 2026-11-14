@@ -4,10 +4,12 @@ import {
   BookOpen, CalendarDays, ChefHat, Cloud, Home, Menu, Plus, Search,
   Settings, ShoppingBasket, WifiOff, X,
 } from 'lucide-react';
-import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import { addRational, aggregateRecipes, draftToRecipe, makeId, parseIngredientLine } from '../../lib/domain';
 import { mergeGroceryItems, replaceGeneratedItems } from '../../lib/grocery-merge';
 import { watchAppUpdate } from '../../lib/app-update';
+import { readSharedRecipeLink } from '../../lib/share-intake';
+import { createShareInbox } from '../../lib/share-inbox';
 import { readSkylightEmailApp, saveSkylightEmailApp, type StoredGitHubConnection } from '../../lib/client-cache';
 import { parseBackupFile } from '../../lib/github-sync';
 import type { ImportRecipeUrl } from '../../lib/github-import-queue';
@@ -74,17 +76,6 @@ function greetingFor(date: Date, displayName: string): string {
   return hasRealName ? `${base}, ${name.split(/\s+/)[0]}` : base;
 }
 
-// A link handed to Savor by the system share sheet (Android) or a shortcut
-// may arrive in `url` or buried in `text`; the first http(s) link wins.
-function sharedRecipeUrl(params: URLSearchParams): string | null {
-  for (const key of ['url', 'text', 'title']) {
-    const value = params.get(key);
-    const match = value?.match(/https?:\/\/[^\s<>"'’”)\]]+/i);
-    if (match) return match[0].replace(/[.,;:!?]+$/, '');
-  }
-  return null;
-}
-
 export function SavorApp({
   data, setData, connection, hasGitHubToken, sync, startInSettings,
   onConnectGitHub, onDisconnectGitHub, onSyncNow, onImportRecipeUrl,
@@ -116,6 +107,15 @@ export function SavorApp({
   const [skylightEmailApp, setSkylightEmailApp] = useState<SkylightEmailApp>('gmail');
   const [sharedUrl, setSharedUrl] = useState<string | null>(null);
   const [addMode, setAddMode] = useState<AddMode>('choose');
+  const [shareInbox] = useState(() => {
+    let storage: Storage | null = null;
+    try { storage = window.sessionStorage; } catch { /* Private browsing may deny storage. */ }
+    return createShareInbox(storage, window.location.href);
+  });
+  const [pendingShares, setPendingShares] = useState(shareInbox.urls);
+  const shareBlocked = Boolean(addOpen || settingsOpen || selectedRecipe || cookingRecipe || mobileMenuOpen);
+  const shareBlockedRef = useRef(shareBlocked);
+  shareBlockedRef.current = shareBlocked;
 
   useEffect(() => {
     if (startInSettings) setSettingsOpen(true);
@@ -128,11 +128,23 @@ export function SavorApp({
   }
 
   function closeAdd() {
+    if (sharedUrl) {
+      shareInbox.complete(sharedUrl);
+      setPendingShares(shareInbox.urls);
+    }
     setAddOpen(false);
     setEditingRecipe(null);
     setSharedUrl(null);
     setAddMode('choose');
   }
+
+  useEffect(() => {
+    if (shareBlocked || !pendingShares.length) return;
+    setSharedUrl(pendingShares[0]);
+    setEditingRecipe(null);
+    setAddMode('link');
+    setAddOpen(true);
+  }, [pendingShares, shareBlocked]);
 
   // Each tab is its own page; carrying the previous tab's scroll offset over
   // leaves the new one opened halfway down.
@@ -175,13 +187,23 @@ export function SavorApp({
   }, [layerDepth]);
   useEffect(() => {
     const onPop = () => {
-      if (suppressPopRef.current > 0) {
-        suppressPopRef.current -= 1;
-        return;
-      }
+      // A new Shortcut hash is a delivery, not a request to dismiss a review.
+      if (readSharedRecipeLink(window.location.href).hadSharePayload) return;
       const state = window.history.state as { savorLayer?: number } | null;
       const depth = state?.savorLayer ?? 0;
-      if (depth < historyDepthRef.current) {
+      if (suppressPopRef.current > 0) {
+        suppressPopRef.current -= 1;
+        // A warm hash delivery can add another entry for the same open layer.
+        // Continue past those duplicates until the closed layer is behind us.
+        if (depth > historyDepthRef.current) {
+          suppressPopRef.current += 1;
+          window.history.go(-1);
+        }
+        return;
+      }
+      if (depth === historyDepthRef.current && depth > 0) {
+        window.history.go(-1);
+      } else if (depth < historyDepthRef.current) {
         const toClose = historyDepthRef.current - depth;
         historyDepthRef.current = depth;
         closeLayersRef.current(toClose);
@@ -242,28 +264,48 @@ export function SavorApp({
     saveSkylightEmailApp(value).catch(() => showToast({ message: 'Savor could not remember that email app on this device.' }));
   }, [showToast]);
 
-  useEffect(() => {
-    const initialSync = window.setTimeout(() => {
+  // Consume a cold-start share before passive overlay effects push history.
+  // Otherwise the initial URL would remain behind Settings as a second share.
+  useLayoutEffect(() => {
+    const receiveSharedLink = () => {
+      const incoming = readSharedRecipeLink(window.location.href);
+      if (!incoming.hadSharePayload) return;
+      const outcome = incoming.url ? shareInbox.enqueue(incoming.url) : 'invalid';
+      if (outcome === 'full') {
+        // Leave the new URL intact so a reload can retry after the inbox clears.
+        showToast({ message: 'Finish a pending shared recipe before sending more links.' });
+        return;
+      }
+      // Persist first, then remove only the incoming payload. Preserve layers
+      // even when Safari created a same-document history entry for the hash.
+      window.history.replaceState({ ...window.history.state, savorLayer: historyDepthRef.current }, '', incoming.cleanedHref);
+      setPendingShares(shareInbox.urls);
+      if (outcome === 'invalid') {
+        showToast({ message: 'No recipe link arrived. Check that the Shortcut passes URL Encoded Text into its Text action.', actionLabel: 'Setup', action: () => setSettingsOpen(true) });
+      } else if (outcome === 'added' && shareBlockedRef.current) {
+        showToast({ message: 'Shared recipe received. It will open when you finish this screen.' });
+      }
+    };
+    const initializeLocation = () => {
       setOnline(navigator.onLine);
       const params = new URLSearchParams(window.location.search);
       const requestedView = params.get('view');
       if (requestedView === 'home' || requestedView === 'recipes' || requestedView === 'plan' || requestedView === 'grocery') {
         setView(requestedView);
       }
-      const shared = sharedRecipeUrl(params);
-      if (shared) {
-        setSharedUrl(shared);
-        setEditingRecipe(null);
-        setAddMode('link');
-        setAddOpen(true);
-      } else if (params.get('capture') === '1') {
+      const hasIncoming = readSharedRecipeLink(window.location.href).hadSharePayload;
+      receiveSharedLink();
+      if (!hasIncoming && params.get('capture') === '1') {
         setAddOpen(true);
       }
-      if (params.has('view') || params.has('capture') || shared || params.has('url') || params.has('text') || params.has('title')) {
-        // Keep whatever layer state is already on this entry; only the query string goes.
-        window.history.replaceState(window.history.state, '', window.location.pathname);
+      if (params.has('view') || params.has('capture')) {
+        const cleaned = new URL(window.location.href);
+        cleaned.searchParams.delete('view');
+        cleaned.searchParams.delete('capture');
+        window.history.replaceState(window.history.state, '', cleaned.href);
       }
-    }, 0);
+    };
+    initializeLocation();
     const handleOnline = () => setOnline(true);
     const handleOffline = () => setOnline(false);
     const handleInstall = (event: Event) => {
@@ -273,6 +315,8 @@ export function SavorApp({
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
     window.addEventListener('beforeinstallprompt', handleInstall);
+    window.addEventListener('hashchange', receiveSharedLink);
+    window.addEventListener('pageshow', receiveSharedLink);
     let active = true;
     let releaseWorker: (() => void) | undefined;
     if ('serviceWorker' in navigator) {
@@ -294,13 +338,14 @@ export function SavorApp({
     }
     return () => {
       active = false;
-      window.clearTimeout(initialSync);
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
       window.removeEventListener('beforeinstallprompt', handleInstall);
+      window.removeEventListener('hashchange', receiveSharedLink);
+      window.removeEventListener('pageshow', receiveSharedLink);
       releaseWorker?.();
     };
-  }, [showToast]);
+  }, [shareInbox, showToast]);
 
   async function saveRecipe(draft: RecipeDraft) {
     const existing = data.recipes.find((recipe) => recipe.id === draft.id);

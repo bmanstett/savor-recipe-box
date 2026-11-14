@@ -9,7 +9,7 @@ pnpm install
 pnpm dev
 ```
 
-Run `pnpm lint`, `pnpm test:domain`, `pnpm test:import`, `pnpm test:photos`, `pnpm test:updates`, and `pnpm build` before publishing.
+Run `pnpm lint`, `pnpm test:domain`, `pnpm test:import`, `pnpm test:claude`, `pnpm test:import-queue`, `pnpm test:share`, `pnpm test:photos`, `pnpm test:updates`, and `pnpm build` before publishing.
 
 ## Private sync setup
 
@@ -26,11 +26,58 @@ GitHub stores synchronized state at `savor/v1/state.json` and compressed photos 
 
 Link imports also require `.github/workflows/savor-recipe-import.yml` in that private repository. Copy [`scripts/savor-data-recipe-import.yml.example`](scripts/savor-data-recipe-import.yml.example), replace its importer placeholder with the full commit SHA being deployed, and change `main` if the private repository uses another default branch. The workflow runs with `contents: write` only and invokes the importer from this public app repository at that pinned commit. The device token still needs only **Contents: read and write**; it does not need Actions, Workflows, or access to the public app repository.
 
+## Claude recipe imports
+
+Claude can extract a recipe from readable public page or caption text when Savor's regular parsers do not find a complete recipe. It runs in the private data repository's GitHub Action; the API key never enters the app, browser storage, synced household data, or the public Pages build.
+
+1. In the private `savor-data` repository, open **Settings → Secrets and variables → Actions → New repository secret**.
+2. Name the secret **`ANTHROPIC_API_KEY`**, paste your Anthropic API key into its value, and save it. Do not paste the key into chat, recipe text, a workflow file, or a `VITE_` environment variable.
+3. Update `.github/workflows/savor-recipe-import.yml` using the [example workflow](scripts/savor-data-recipe-import.yml.example). Its importer reference must point to the full published commit SHA containing importer version 4 or later. Keep these inputs on the importer step:
+
+   ```yaml
+   anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+   anthropic-model: ${{ vars.ANTHROPIC_MODEL }}
+   ```
+
+4. Optionally add an **Actions repository variable** named `ANTHROPIC_MODEL` to choose a supported Claude model ID. Leave it unset to use the importer's default, `claude-haiku-5-5`. Reload the updated Savor app and import a link normally; Claude-assisted results are labeled in the editable review.
+
+No key is required for the existing importers. When enabled, Claude receives only a bounded amount of public page/caption text and source attribution from that import. Savor makes at most one paid Anthropic API request per import, only when the ordinary parsing path is incomplete, with a 35-second timeout in addition to the public-page fetch budget. It sends neither the household cookbook nor the GitHub token to Anthropic. API errors retain any usable details already extracted and show a warning.
+
+Claude cannot retrieve private posts, bypass a sign-in or paywall, or transcribe a recipe that exists only in video/audio. The importer checks that the returned title, ingredient lines, instructions, and notes occur in the selected source text, and rejects unsupported output. Review the title, quantities, and instructions before saving, just as with other imports. For inaccessible recipes, paste text you can access or attach screenshots through the existing manual flow.
+
+The server integration uses Anthropic's [Messages API](https://platform.claude.com/docs/en/api/messages/create) and [structured outputs](https://platform.claude.com/docs/en/build-with-claude/structured-outputs). `pnpm test:claude` uses simulated API responses, including errors, timeouts, and invented recipe details; it does not require or spend API credits. A real API check requires the repository secret and the updated private workflow.
+
 ## Using Savor on an iPhone
 
 Savor is designed to be installed from Safari with **Share → Add to Home Screen**. The installed app opens full-screen, works offline, and keeps its own sign-in to the private data repository.
 
-- **Saving a recipe from another app** (NYT Cooking, Instagram, Safari, any food blog): tap Share in that app, choose **Copy Link**, open Savor, tap **+ → Start from a link**, then tap **Paste**. Savor reads the public page through the private data repository and opens an editable review before anything is saved. The link stays attached to the recipe and is one tap away from the recipe page and from cooking mode. Links without a scheme (`cooking.nytimes.com/…`) and `http://` links are repaired automatically. On Android and desktop Chrome, Savor also appears directly in the system share sheet.
+### Set up Save to Savor once
+
+Create this shortcut on your iPhone to send a recipe directly from another app's Share menu. It opens Savor in your browser (normally Safari). The setup is manual on the phone; this Windows project does not provide an installable signed `.shortcut` file.
+
+1. Open Savor's **Household settings → Share to Savor from iPhone** and copy the shortcut link prefix shown there. Use that exact prefix so the shortcut points to your Savor installation.
+2. In Apple's **Shortcuts** app, create a shortcut named **Save to Savor**. Open its Details, turn on **Show in Share Sheet**, and set its accepted inputs to **URLs**, **Text**, and **Safari Web Pages**. This makes it available from other apps' Share menus. [Apple's share-sheet guide](https://support.apple.com/guide/shortcuts/launch-a-shortcut-from-another-app-apd163eb9f95/ios).
+3. Add the following actions in this order, choosing the outputs as variables:
+
+| Action | Setting or input |
+| --- | --- |
+| **Get URLs from Input** | **Shortcut Input** |
+| **Get Item from List** | **First Item** from **URLs** |
+| **URL Encode** | **Encode** the **Item from List** |
+| **Text** | Paste the Savor prefix, then insert the **URL Encoded Text** variable immediately after it, with no space or newline |
+| **Open URLs** | The **Text** output |
+
+Keep the **URL Encode** step: recipe links can contain `&`, `#`, and other characters that must be preserved. The Text action should contain the app prefix ending in `#share?url=` followed by the encoded recipe URL variable. **Open URLs** opens that completed link; see [Apple's URL action guide](https://support.apple.com/guide/shortcuts/use-another-apps-url-scheme-apd68802640c/ios).
+
+### Save a recipe from the Share menu
+
+In **NYT Cooking** or **Safari**, tap **Share → Save to Savor**. In **Instagram**, open the post or reel's sharing options, then the system share sheet (sometimes under **Share to…** or **More**) and choose **Save to Savor**. Allow the shortcut to open Savor if iOS asks. Everyday use needs no copying or pasting, and the shortcut contains no API keys or GitHub tokens.
+
+Savor opens in your browser and starts importing the shared link when connected to the private data repository. Review the extracted recipe, then save it. That browser may need its own repository connection even if the Home Screen app is already connected; use the same private repository so recipes sync between them. A shared link remains available while you connect.
+
+The shared URL travels in the link's fragment (`#share?url=…`), which the browser does not send to the public hosting server in its page request. Savor then sends the recipe URL through the normal private import queue. This avoids placing the recipe URL in public hosting request logs. The original source remains attached to the recipe.
+
+- **Manual alternative**: copy a recipe link, open Savor, tap **+ → Start from a link**, then **Paste**. Links without a scheme (`cooking.nytimes.com/…`) and `http://` links are repaired automatically. On Android and desktop Chrome, Savor also appears directly in the system share sheet.
 - **When a page cannot be read automatically** (private Instagram posts, recipes that live only in a video, pages behind a sign-in), paste the caption or recipe text, or attach screenshots; the original link is still kept.
 - **Back gesture**: the iPhone edge swipe (and the Android back button) closes the open recipe, cooking mode, sheet, or settings instead of leaving the app.
 - **Cooking mode** opens on the current step with the ingredient list one tap away, remembers which step you were on for half a day, keeps the screen awake on request, and runs its kitchen timer by the clock so it stays correct after switching apps.
@@ -71,7 +118,7 @@ Freshness guidance is intentionally conservative. Package dates, refrigerator te
 
 Because GitHub Pages is static, Savor uses the private data repository as an asynchronous import queue. The app writes a small request under `savor/v1/imports/requests/`, a private GitHub Action processes it, and the app polls `savor/v1/imports/results/` before opening the normal editable review screen.
 
-- Any public recipe link works: food blogs, newspaper cooking sites, recipe apps with a public web page, and Instagram posts or reels. The importer is dependency-free Node 20+ (`scripts/process-recipe-imports.mjs`) and only ever fetches public HTTPS pages that resolve to public addresses. Share-tracking parameters (`utm_*`, `igsh`, `fbclid`, `smid`, `sgrp`, `ref`, …) are stripped from the saved source URL, and the link exactly as the app sent it is always listed first in the result's `sourcesChecked`, so the app's check that a result belongs to the link it asked for holds even when the app and the importer strip different parameters.
+- Savor attempts public recipe links from food blogs, newspaper cooking sites, recipe apps with a public web page, and Instagram posts or reels. Success depends on accessible recipe text or structured data. The importer is dependency-free Node 20+ (`scripts/process-recipe-imports.mjs`) and only ever fetches public HTTPS pages that resolve to public addresses. Share-tracking parameters (`utm_*`, `igsh`, `fbclid`, `smid`, `sgrp`, `ref`, …) are stripped from the saved source URL, and the link exactly as the app sent it is always listed first in the result's `sourcesChecked`, so the app's check that a result belongs to the link it asked for holds even when the app and the importer strip different parameters.
 - Redirects: when a page redirects (a trailing slash, a moved page), the draft's `sourceURL` stays the link that was requested; the final URL is recorded in `sourcesChecked` and on the draft's `sourceLinks` as "Recipe page on <host>" when it differs. Redirects stay on HTTPS: a single `http://` redirect target is retried once as `https://`; a site that insists on plain http fails with "This site only serves an insecure (http) page." Each page fetch runs against an absolute deadline (per hop, DNS included, the timeout is the smaller of the request timeout and the time left), so one slow host cannot consume the whole job.
 - Pages are requested with `Accept-Encoding: gzip, br, deflate` and the declared charset (`Content-Type` or `<meta charset>`) is honored. Bodies are read up to 4 MB after decompression (2 MB for the public reader). A larger page is not rejected: reading stops at the cap and whatever arrived is parsed, which is enough because Schema.org data sits in the first few hundred KB; the result only gains a warning (naming the 4 MB or 2 MB cap that was hit) if the recipe turned out incomplete. The first request identifies itself honestly as `SavorRecipeImporter/1.0`; if a site answers that with a 403/406/429/503 or a bot-challenge interstitial, one retry is made with ordinary browser headers, and a page that was readable but merely resembled a challenge is kept if the retry does no better. Nothing is retried past a definitive answer such as a 404.
 - Structured data is read in order of reliability: Schema.org `Recipe` JSON-LD (including `@graph`, nested `mainEntity`, Yoast-style graphs whose author and image are separate nodes referenced by `@id`, `HowToSection`/`ItemList` steps, `HowToTip` notes appended to the step before them, HTML-string instructions, named entities such as `&frac12;` and `&eacute;`, IRI and prefixed `@type` values, blocks followed by HTML comments or containing raw control characters), then Schema.org microdata, then the recipe-card markup of common WordPress plugins (WP Recipe Maker, Tasty Recipes, Mediavine Create), then a conservative visible-text parser. Before the text parser runs, the page's `<head>`, navigation, site header, footer, sidebars, forms, comment threads, "related" rails, newsletter and share widgets, cookie banners and ads are dropped (matched by whole id/class tokens, so a WordPress post wrapper tagged `tag-cookies` or a Genesis `content-sidebar-wrap` is kept as content); the page title comes from the first content `<h1>` (including one inside the post's own `<header class="entry-header">`), then `og:title`, then `<title>`, with the site name removed: a part equal to `og:site_name` or to the host name is dropped and otherwise the trailing part after `|`, `-`, `–` or `•` is treated as the suffix; headings such as "Ingredients (Serves 4):", "What you need", "Shopping list", "Procedure" or "Directions" are recognised; "To serve:" and "Serve with:" name ingredient groups; and "Notes"/"Tips"/"Storage" sections become the draft's notes while "Nutrition", "Video", "FAQ", "Comments" and "You might also like" end the method.
@@ -82,7 +129,7 @@ Because GitHub Pages is static, Savor uses the private data repository as an asy
 - Every Instagram import keeps its links: the draft's `sourceLinks` list holds the original post, the creator profile when known, and the full recipe page when one was used, so the links stay available while cooking. `sourcesChecked` on the result remains the diagnostic list of everything the importer actually fetched; a page the request budget never allowed is not listed.
 - Savor does not sign into Instagram, bypass private or blocked content, read unrelated posts, or claim to transcribe reel video/audio. When a recipe exists only in the video, a private post, or an inaccessible comment, the app falls back to a pasted caption/creator comment or user-provided screenshots.
 - Imported fields are never silently saved. Title, ingredients, instructions, attribution, and every source checked remain visible and user-correctable first. Ingredient lines carry extra hints for the grocery list (`quantityMax` for ranges such as "2 or 3 tablespoons", `approximate`, `toTaste`, `skipGrocery` for water and trace amounts such as "a splash of water", and a `note` for parentheticals and size adjectives such as "3–5 lb" from "One 3- to 5-pound chuck roast"). The grocery aisle (`groceryCategory`) comes from an ordered aisle table in which specific items beat generic words, so olive oil is a condiment, green beans and fresh chiles are produce, and anything measured in a can or jar is shelved as such.
-- Every result file carries `version: 1` (envelope format) and `importerVersion` (the importer build that produced it, currently `"3"`) on every shape: success, partial, error and invalid request. Every field is clamped to the limits the app validates (title 1 000 characters, description 20 000, at most 500 ingredients and 500 steps, 20 source links, 50 warnings), so a verbose page cannot void its own import.
+- Every result file carries `version: 1` (envelope format) and `importerVersion` (the importer build that produced it, currently `"4"`) on every shape: success, partial, error and invalid request. Every field is clamped to the limits the app validates (title 1 000 characters, description 20 000, at most 500 ingredients and 500 steps, 20 source links, 50 warnings), so a verbose page cannot void its own import.
 - The Action processes requests oldest-first, up to `max-jobs` per run and within a `max-run-minutes` wall-clock budget (default 15 minutes); requests it did not start are reported as `deferred` and picked up by the next run. The example workflow commits and pushes whatever results exist even if the importer step fails, and `scripts/process-recipe-imports.mjs` refuses to run on Node older than 20.
 
 Run `node scripts/process-recipe-imports.test.mjs` to exercise the importer against the synthetic fixtures under `scripts/fixtures/`.

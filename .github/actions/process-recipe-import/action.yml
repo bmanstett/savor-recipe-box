@@ -17,6 +17,12 @@ inputs:
   jina-api-key:
     description: Optional Jina Reader API key. Public no-key access is supported.
     required: false
+  anthropic-api-key:
+    description: Optional Anthropic API key for Claude recipe extraction when page parsing is incomplete. Pass a private repository Actions secret.
+    required: false
+  anthropic-model:
+    description: Optional Claude model ID. Leave empty to use the importer's default model.
+    required: false
 
 outputs:
   processed:
@@ -50,6 +56,8 @@ runs:
         INPUT_MAX_JOBS: ${{ inputs.max-jobs }}
         INPUT_MAX_RUN_MINUTES: ${{ inputs.max-run-minutes }}
         JINA_API_KEY: ${{ inputs.jina-api-key }}
+        ANTHROPIC_API_KEY: ${{ inputs.anthropic-api-key }}
+        ANTHROPIC_MODEL: ${{ inputs.anthropic-model }}
       run: |
         node "${{ github.action_path }}/../../../scripts/process-recipe-imports.mjs" \
           --root "$INPUT_ROOT" \

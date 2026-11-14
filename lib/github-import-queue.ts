@@ -15,22 +15,20 @@ const REQUEST_ROOT = 'savor/v1/imports/requests';
 const RESULT_ROOT = 'savor/v1/imports/results';
 const WORKFLOW_PATH = '.github/workflows/savor-recipe-import.yml';
 // A fresh GitHub Actions runner can take 20-60 seconds to start before the
-// importer's own 75-second job budget begins, so the client waits generously.
-const DEFAULT_TIMEOUT_MS = 170_000;
+// importer's page and optional Claude budgets begin, so the client waits generously.
+const DEFAULT_TIMEOUT_MS = 200_000;
 const MAX_TIMEOUT_MS = 240_000;
 const POLL_INTERVAL_MS = 3_000;
 const REQUEST_TIMEOUT_MS = 20_000;
-// Results from importers older than this lack fixes the app relies on (for
-// example decompressing NYT Cooking pages). The app still accepts them, but
-// tells the household that the private workflow should be updated.
-const EXPECTED_IMPORTER_VERSION = 2;
+// Older importers still work, but do not support the optional Claude fallback.
+const EXPECTED_IMPORTER_VERSION = 4;
 
 const SOURCE_TYPES = new Set<SourceType>(['url', 'photo', 'screenshot', 'pasted-text', 'manual']);
 const GROCERY_CATEGORIES = new Set<GroceryCategory>([
   'Produce', 'Meat & Seafood', 'Dairy & Eggs', 'Bakery', 'Frozen', 'Pantry', 'Canned & Jarred',
   'Pasta, Rice & Grains', 'Spices & Seasonings', 'Sauces & Condiments', 'Other',
 ]);
-const RESULT_PROVIDERS = new Set(['schema-org', 'microdata', 'text-parser', 'instagram-caption', 'linked-recipe', 'public-reader']);
+const RESULT_PROVIDERS = new Set(['schema-org', 'microdata', 'text-parser', 'instagram-caption', 'linked-recipe', 'public-reader', 'claude']);
 const SOURCE_KINDS = new Set(['instagram-post', 'creator-profile', 'recipe-page']);
 // Mirrors the importer's list so the client and the Action agree on the canonical URL.
 const TRACKING_PARAMETERS = new Set(['igsh', 'igshid', 'fbclid', 'gclid', 'dclid', 'msclkid', 'twclid', 'ttclid', 'yclid', 'mc_cid', 'mc_eid', 'smid', 'sgrp', 'ref', 'ref_src', 'ref_url']);
@@ -58,7 +56,7 @@ interface SuccessfulQueueResult {
   status: 'success' | 'partial';
   draft: RecipeDraft;
   warnings: string[];
-  provider: 'schema-org' | 'microdata' | 'text-parser' | 'instagram-caption' | 'linked-recipe' | 'public-reader';
+  provider: Exclude<ImportResult['provider'], 'manual-photo'>;
   sourcesChecked: CheckedSource[];
   completedAt: string;
   importerVersion: number | null;
@@ -74,7 +72,7 @@ function staleImporterWarning(connection: StoredGitHubConnection, version: numbe
   if (version !== null && version >= EXPECTED_IMPORTER_VERSION) return null;
   return `Your private recipe importer is out of date (version ${version ?? 1}; Savor expects ${EXPECTED_IMPORTER_VERSION}). `
     + `Update .github/workflows/savor-recipe-import.yml in ${connection.owner}/${connection.repo} to point at the newest Savor commit `
-    + 'so NYT Cooking, Instagram, and food-blog links import reliably.';
+    + 'to get the latest link-import fixes and optional Claude support.';
 }
 
 export class GitHubImportError extends Error {

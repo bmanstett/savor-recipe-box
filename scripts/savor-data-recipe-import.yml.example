@@ -40,6 +40,9 @@ jobs:
           root: .
           max-jobs: '20'
           max-run-minutes: '15'
+          # Optional: enable Claude fallback with a secret in this private repo.
+          anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+          anthropic-model: ${{ vars.ANTHROPIC_MODEL }}
 
       - name: Commit generated results
         id: commit

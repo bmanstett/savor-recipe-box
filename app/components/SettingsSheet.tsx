@@ -2,13 +2,14 @@
 
 import {
   ChevronDown, ChevronUp, Cloud, Download, ExternalLink, Github, HardDrive,
-  KeyRound, Mail, RefreshCw, ShieldCheck, Smartphone, Unplug, Upload, X,
+  KeyRound, Mail, RefreshCw, ShieldCheck, Smartphone, Sparkles, Unplug, Upload, X,
 } from 'lucide-react';
 import { type ChangeEvent, useEffect, useRef, useState } from 'react';
 import type { StoredGitHubConnection } from '../../lib/client-cache';
 import type { GitHubConnectInput, SyncPresentation } from '../../lib/sync-types';
 import type { GroceryCategory, HouseholdPreferences, SkylightEmailApp } from '../../lib/types';
 import { isValidSkylightDeviceEmail } from '../../lib/skylight';
+import { ShareShortcutSetup } from './ShareShortcutSetup';
 
 // iPhone Safari never fires beforeinstallprompt, so the only way to offer the
 // installed experience is to explain the Share → Add to Home Screen gesture.
@@ -180,6 +181,20 @@ export function SettingsSheet({
           </section>
 
           <section className="settings-section">
+            <div className="settings-section-heading"><span><Sparkles size={19} /></span><div><h2>Claude recipe imports</h2><p>Optional help for public recipe links that are difficult to read.</p></div></div>
+            <ol className="how-to-list">
+              <li><strong>Update your recipe-import workflow</strong><span>Use the latest Savor workflow from the setup guide.</span></li>
+              <li><strong>Add your Claude API key in GitHub</strong><span>In your private data repository, open Settings → Secrets and variables → Actions. Add a repository secret named <code>ANTHROPIC_API_KEY</code>.</span></li>
+              <li><strong>Import a recipe link as usual</strong><span>Claude helps when the page needs extra extraction. You review the recipe before saving.</span></li>
+            </ol>
+            <p className="app-update-help">The key stays in GitHub Actions and is never saved in this browser. Claude receives public page text only; your cookbook and GitHub token are not shared. Your Anthropic account is billed for AI requests. Without a key, ordinary link imports still work.</p>
+            <div className="github-connect-actions">
+              {connection ? <a className="button button-secondary" href={`https://github.com/${encodeURIComponent(connection.owner)}/${encodeURIComponent(connection.repo)}/settings/secrets/actions`} target="_blank" rel="noreferrer">Open API key setup<ExternalLink size={14} /></a> : null}
+              <a className="button button-ghost" href="https://github.com/bmanstett/savor-recipe-box/blob/master/README.md#claude-recipe-imports" target="_blank" rel="noreferrer">Setup guide<ExternalLink size={14} /></a>
+            </div>
+          </section>
+
+          <section className="settings-section">
             <div className="settings-section-heading"><span><Mail size={19} /></span><div><h2>Skylight Sidekick</h2><p>Send meal names, dates, and meal slots to your Calendar's Meal Planner.</p></div></div>
             <label className="field-label">Skylight device email<input type="email" value={skylightEmail} onChange={(event) => setSkylightEmail(event.target.value)} autoCapitalize="none" autoComplete="off" spellCheck={false} placeholder="your-calendar@ourskylight.com" /><small>Optional. Find this address in the Skylight app. It stays with your private household preferences.</small></label>
             <label className="field-label">Default email app<select value={skylightEmailApp} onChange={(event) => onChangeSkylightEmailApp(event.target.value as SkylightEmailApp)}><option value="gmail">Gmail app</option><option value="device-default">Device default mail app</option></select><small>Saved immediately on this device. Gmail must be installed; device default uses the mail app selected in your phone or computer settings.</small></label>
@@ -221,17 +236,7 @@ export function SettingsSheet({
 
           {installAvailable ? <section className="install-card"><Smartphone size={21} /><div><strong>Install Savor</strong><p>Open it from your home screen or desktop like a native app.</p></div><button className="button button-secondary" type="button" onClick={onInstall}>Install</button></section> : null}
           {!installAvailable && isIosBrowserTab() ? <section className="install-card"><Smartphone size={21} /><div><strong>Add Savor to your Home Screen</strong><p>In Safari tap the Share button, then “Add to Home Screen”. Savor then opens full-screen and keeps working offline.</p></div></section> : null}
-          {isIos() ? (
-            <section className="settings-section">
-              <div className="settings-section-heading"><span><ExternalLink size={19} /></span><div><h2>Saving a recipe from another app</h2><p>NYT Cooking, Instagram, Safari, and any food blog.</p></div></div>
-              <ol className="how-to-list">
-                <li><strong>Tap Share in the other app</strong><span>then choose <em>Copy Link</em> (in Instagram: Share → Copy link).</span></li>
-                <li><strong>Open Savor and tap +</strong><span>then <em>Start from a link</em>.</span></li>
-                <li><strong>Tap Paste</strong><span>Savor reads the public page and opens an editable review. The link stays attached to the saved recipe.</span></li>
-              </ol>
-              <p className="github-helper">iPhone does not yet offer web apps in the share sheet, so this copy-and-paste route is the quickest one. Pages behind a sign-in cannot be read automatically; paste their text instead.</p>
-            </section>
-          ) : null}
+          <ShareShortcutSetup />
         </div>
         <footer className="settings-footer"><button className="button button-ghost" type="button" onClick={onClose}>Close</button><button className="button button-primary" type="button" disabled={saving} onClick={save}>{saving ? 'Saving…' : 'Save preferences'}</button></footer>
       </section>

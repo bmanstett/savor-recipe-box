@@ -163,7 +163,7 @@ export interface BootstrapData {
 export interface ImportResult {
   draft: RecipeDraft;
   warnings: string[];
-  provider: 'schema-org' | 'microdata' | 'text-parser' | 'manual-photo' | 'instagram-caption' | 'linked-recipe' | 'public-reader';
+  provider: 'schema-org' | 'microdata' | 'text-parser' | 'manual-photo' | 'instagram-caption' | 'linked-recipe' | 'public-reader' | 'claude';
   sourcesChecked?: RecipeSourceLink[];
   completedAt?: string;
   /** Version string reported by the GitHub Action importer; absent for results from older importers. */

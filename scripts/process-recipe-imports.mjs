@@ -8,8 +8,9 @@ import net from 'node:net';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import zlib from 'node:zlib';
+import { CLAUDE_TIMEOUT_MS, ClaudeImportError, extractWithClaude } from './claude-recipe-extractor.mjs';
 
-export const IMPORTER_VERSION = '3';
+export const IMPORTER_VERSION = '4';
 
 const REQUEST_DIRECTORY = path.join('savor', 'v1', 'imports', 'requests');
 const RESULT_DIRECTORY = path.join('savor', 'v1', 'imports', 'results');
@@ -2731,6 +2732,8 @@ export function extractRecipeFromHtml(html, sourceUrl) {
   const wprm = detectRecipePlugin(html) === 'wprm';
   return {
     chosen,
+    visibleText,
+    title: authoritativeTitle || pageTitle(textDraft.title),
     photoCandidates: textDraft[PHOTO_CANDIDATES] ?? [],
     paywalled: schema.paywalled && !chosen,
     clientRendered: !chosen && looksClientRendered(visibleText),
@@ -2773,6 +2776,7 @@ async function readerDraft(url, context) {
   const { content, title, ogTitle, heroImage } = readerPageText(response.body);
   const draft = parseRecipeCaption(content, { title, sourceURL: url.href, sourceName: hostLabel(url), heroImage });
   draft.title = pickRecipeTitle({ ogTitle, pageTitle: title, hostname: url.hostname }) || draft.title;
+  rememberClaudeSource(context, url, content, draft.title, draft);
   return evidenceDraft(draft) ? { draft, provider: 'public-reader', structured: false } : null;
 }
 
@@ -2790,6 +2794,7 @@ async function inspectRecipePage(url, context, { allowReader = false } = {}) {
   const page = extractRecipeFromHtml(response.body, finalUrl);
   let best = page.chosen;
   if (!best && page.paywalled) throw new Error(PAYWALL_MESSAGE);
+  rememberClaudeSource(context, finalUrl, page.visibleText, page.title, best?.draft, page.photoCandidates);
 
   // A text-mode or empty result gets a second chance from the page's own
   // alternate views (canonical, print, AMP), then from the public reader. A
@@ -2800,7 +2805,10 @@ async function inspectRecipePage(url, context, { allowReader = false } = {}) {
       if (settled()) break;
       try {
         const view = await fetchPage(alternate.url, context, { record: sourceRecord('recipe-page', alternate.url, `${alternate.label} on ${hostLabel(alternate.url)}`) });
-        const candidate = extractRecipeFromHtml(view.body, view.url).chosen;
+        const alternatePage = extractRecipeFromHtml(view.body, view.url);
+        if (alternatePage.paywalled) continue;
+        const candidate = alternatePage.chosen;
+        rememberClaudeSource(context, view.url, alternatePage.visibleText, alternatePage.title, candidate?.draft, alternatePage.photoCandidates);
         if (preferCandidate(candidate, best)) {
           rememberPhotos(candidate.draft, [candidate.draft[PHOTO_CANDIDATES] ?? candidate.draft.heroImage, best?.draft?.[PHOTO_CANDIDATES] ?? best?.draft?.heroImage]);
           best = candidate;
@@ -2895,6 +2903,7 @@ async function processInstagram(sourceUrl, context) {
   });
   rememberPhotos(captionDraft, [post.photoCandidates ?? post.heroImage]);
   captionDraft.sourceLinks = sourceLinks;
+  rememberClaudeSource(context, sourceUrl, post.caption, captionDraft.title || post.title, captionDraft);
   let best = evidenceDraft(captionDraft) ? captionDraft : null;
   let provider = best ? 'instagram-caption' : 'public-reader';
   if (completeDraft(best)) return { draft: best, provider };
@@ -2915,10 +2924,60 @@ async function processInstagram(sourceUrl, context) {
     return completeDraft(best) ? 'done' : 'continue';
   });
 
-  if (!best && post.caption) warnings.push('Public post text was found, but it did not contain identifiable ingredients or instructions.');
-  else if (best && !best.ingredients.length) warnings.push('No ingredient list was found in the public sources checked.');
-  else if (best && !best.instructions.length) warnings.push('No preparation steps were found in the public sources checked.');
   return { draft: best, provider };
+}
+
+// Keep public evidence separate from the household state and credentials. The
+// model selects one checked source; it can never supply a new URL to fetch.
+function rememberClaudeSource(context, url, text, title, draft = null, photos = []) {
+  if (!context.anthropicApiKey || isLinkHubUrl(url) || typeof text !== 'string' || text.trim().length < 40 || looksLikeBotChallenge(200, text)) return;
+  const existing = context.claudeSources.find((source) => source.url === url.href && source.text === text.slice(0, 100_000));
+  if (existing || context.claudeSources.length >= 12) return;
+  context.claudeSources.push({ url: url.href, text: text.slice(0, 100_000), title: title || '', draft, photos });
+}
+
+async function tryClaudeFallback(imported, sourceUrl, context) {
+  if (!context.anthropicApiKey || completeDraft(imported.draft) || !context.claudeSources.length) return imported;
+  // Prioritize the sources with recipe evidence, keeping discovery order for
+  // ties. A caption and a linked recipe are never merged by the model.
+  const sources = [...context.claudeSources].sort((a, b) => recipeEvidenceScore(b.draft) - recipeEvidenceScore(a.draft)).slice(0, 3);
+  try {
+    const timeoutMs = Math.min(CLAUDE_TIMEOUT_MS, context.deadline + CLAUDE_TIMEOUT_MS - Date.now());
+    if (timeoutMs < 1_000) throw new ClaudeImportError('There was not enough time for Claude to read this recipe. Try importing again.');
+    const extracted = await extractWithClaude({
+      apiKey: context.anthropicApiKey, model: context.anthropicModel,
+      sources, fetchImpl: context.fetchClaude, timeoutMs,
+    });
+    if (!extracted) return imported;
+    const source = sources[extracted.sourceIndex];
+    const draft = emptyDraft('url');
+    draft.title = extracted.title;
+    draft.ingredients = extracted.ingredients.map((line) => ({ ...parseIngredient(line), needsReview: true }));
+    draft.instructions = extracted.instructions.map((line, index) => makeInstruction(line, index + 1));
+    draft.notes = extracted.notes.join('\n');
+    // Only metadata already found by the local parser may accompany AI text.
+    if (source.draft) {
+      for (const key of ['author', 'servings', 'prepTime', 'cookTime', 'totalTime', 'cuisine', 'categories', 'tags']) draft[key] = source.draft[key];
+    }
+    const instagram = isInstagramHost(sourceUrl.hostname);
+    const caption = instagram ? context.claudeSources.find((item) => item.url === sourceUrl.href)?.draft : null;
+    draft.sourceURL = sourceUrl.href;
+    draft.sourceName = instagram ? 'Instagram' : hostLabel(sourceUrl);
+    draft.author ||= caption?.author ?? null;
+    draft.sourceLinks = [...(caption?.sourceLinks ?? []), ...(source.draft?.sourceLinks ?? [])];
+    if (source.url !== sourceUrl.href && !draft.sourceLinks.some((link) => link.url === source.url)) {
+      draft.sourceLinks.push(sourceRecord('recipe-page', new URL(source.url), `Recipe page on ${hostLabel(new URL(source.url))}`));
+    }
+    rememberPhotos(draft, [source.draft?.[PHOTO_CANDIDATES] ?? source.draft?.heroImage, source.photos, caption?.[PHOTO_CANDIDATES] ?? caption?.heroImage]);
+    // Never replace useful evidence with a smaller or less complete result.
+    if (imported.draft && (draft.ingredients.length < imported.draft.ingredients.length || draft.instructions.length < imported.draft.instructions.length)) return imported;
+    if (!evidenceDraft(draft)) return imported;
+    context.warnings.push('Claude extracted this recipe from public page text. Check the ingredients, quantities, and steps before saving.');
+    return { draft, provider: 'claude' };
+  } catch (error) {
+    context.warnings.push(error instanceof ClaudeImportError ? error.message : 'Claude could not read this recipe. The available recipe details were kept.');
+    return imported;
+  }
 }
 
 function makeContext(options) {
@@ -2929,6 +2988,10 @@ function makeContext(options) {
   return {
     warnings,
     sourcesChecked,
+    claudeSources: [],
+    anthropicApiKey: options.anthropicApiKey ?? process.env.ANTHROPIC_API_KEY ?? '',
+    anthropicModel: options.anthropicModel ?? process.env.ANTHROPIC_MODEL,
+    fetchClaude: options.fetchClaude,
     fetchText: options.fetchText ?? safeFetchText,
     // Image bytes travel through the same guarded fetch. A caller that mocks
     // fetchText without fetchBinary gets no image requests at all.
@@ -3071,9 +3134,9 @@ export async function processImportRequest(request, options = {}) {
     } else {
       const page = await inspectRecipePage(validated.url, context, { allowReader: true });
       imported = { draft: page.draft, provider: page.provider ?? 'public-reader' };
-      if (!page.draft) context.warnings.push('No Schema.org Recipe data or identifiable ingredient/instruction sections were found.');
-      else if (!completeDraft(page.draft)) context.warnings.push('Only part of the recipe could be identified; review the imported fields before saving.');
     }
+    imported = await tryClaudeFallback(imported, validated.url, context);
+    if (imported.draft && !completeDraft(imported.draft)) context.warnings.push('Only part of the recipe could be identified; review the imported fields before saving.');
     if (context.truncated && !completeDraft(imported.draft)) {
       const cap = context.truncatedCap || MAX_RESPONSE_BYTES;
       const subject = cap < MAX_RESPONSE_BYTES ? 'The readable copy of the page' : 'The page';
@@ -3081,7 +3144,8 @@ export async function processImportRequest(request, options = {}) {
     }
     const status = resultStatus(imported.draft);
     if (status === 'error') {
-      return { ...errorResult(jobId, 'No usable recipe details were found in the public sources checked.', context, completedAt), provider: imported.provider };
+      const aiFailure = context.warnings.find((warning) => /^(?:Claude|There was not enough time for Claude)/.test(warning));
+      return { ...errorResult(jobId, aiFailure ?? 'No usable recipe details were found in the public sources checked. Paste the recipe text or attach screenshots to keep the original link.', context, completedAt), provider: imported.provider };
     }
     await embedHeroImage(imported.draft, context);
     return {
@@ -3153,7 +3217,8 @@ export async function processPendingRequests(options = {}) {
       const stat = await fs.stat(requestPath);
       if (stat.size > MAX_REQUEST_FILE_BYTES) throw new Error('Import request file exceeds the size limit.');
       request = JSON.parse(await fs.readFile(requestPath, 'utf8'));
-      result = await processImportRequest(request, { fallbackJobId, fetchText: options.fetchText, fetchBinary: options.fetchBinary, now: options.now });
+      result = await processImportRequest(request, { fallbackJobId, fetchText: options.fetchText, fetchBinary: options.fetchBinary, now: options.now,
+        anthropicApiKey: options.anthropicApiKey, anthropicModel: options.anthropicModel, fetchClaude: options.fetchClaude });
     } catch (error) {
       result = errorResult(
         typeof request?.jobId === 'string' ? request.jobId.slice(0, 128) : fallbackJobId,
